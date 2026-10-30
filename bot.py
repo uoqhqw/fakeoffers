@@ -366,8 +366,21 @@ async def handle_business_message(message: Message):
     gift_name, gift_num = gift
     preview_url = _gift_preview_url(gift_name, gift_num)
 
+    # сначала шлём оффер — если упал, команду не удаляем
     try:
+        await bot.send_message(
+            chat_id=message.chat.id,
+            text=build_offer_text(amount, currency, gift_name, gift_num, lang),
+            reply_markup=make_offer_keyboard(amount, currency, gift_name, gift_num, lang),
+            business_connection_id=bcid,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
+    except Exception as e:
+        logging.error(f"send error: {e}")
+        return
 
+    # send прошёл — удаляем команду оператора
+    try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteBusinessMessages"
         payload = {
             "business_connection_id": bcid,
@@ -380,20 +393,6 @@ async def handle_business_message(message: Message):
                     logging.warning(f"deleteBusinessMessages failed: {result}")
     except Exception as e:
         logging.warning(f"delete error: {e}")
-
-    try:
-        await bot.send_message(
-            chat_id=message.chat.id,
-            text=build_offer_text(amount, currency, gift_name, gift_num, lang),
-            reply_markup=make_offer_keyboard(amount, currency, gift_name, gift_num, lang),
-            business_connection_id=bcid,
-            link_preview_options=LinkPreviewOptions(
-                is_disabled=True,
-            ),
-        )
-    except Exception as e:
-        logging.error(f"send error: {e}")
-        return
 
 
 @dp.message(CommandStart())

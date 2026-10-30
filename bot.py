@@ -38,7 +38,6 @@ E_STAR  = "6028338546736107668"
 E_CHECK = "5774022692642492953"
 E_LOCK  = "5774077015388852135"
 
-# кеш: chat_id → последний message_id от юзера
 _last_user_msg: dict[int, int] = {}
 
 
@@ -331,31 +330,18 @@ def gen_order_id():
     )
 
 
-def _business_offer_from_owner(message: Message) -> bool:
-    if message.chat.type != "private" or not message.from_user:
-        return False
-    return message.from_user.id != message.chat.id
-
-
-def _gift_preview_url(gift_name: str, gift_num: str) -> str:
-    slug = gift_name.replace(" ", "")
-    return f"https://t.me/nft/{slug}-{gift_num}"
-
-
 @dp.business_message(F.text)
 async def handle_business_message(message: Message):
     bcid = message.business_connection_id
     if not bcid:
         return
 
-    # сообщение от юзера — кешируем message_id и выходим
-    if not _business_offer_from_owner(message):
+    parsed = parse_command(message.text or "")
+
+    if not parsed:
         _last_user_msg[message.chat.id] = message.message_id
         return
 
-    parsed = parse_command(message.text or "")
-    if not parsed:
-        return
     link, amount, currency, lang = parsed
 
     gift = parse_gift(link)
@@ -431,10 +417,9 @@ async def accept(cb: CallbackQuery):
 
 @dp.callback_query(F.data == "decline")
 async def decline(cb: CallbackQuery):
-    lang = "ru"
     try:
         await cb.message.edit_text(
-            text=f'{em(E_NO, "❌")} {T(lang, "declined")}',
+            text=f'{em(E_NO, "❌")} {T("ru", "declined")}',
             reply_markup=None,
         )
     except Exception as e:

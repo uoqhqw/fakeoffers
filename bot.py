@@ -423,18 +423,14 @@ async def accept(cb: CallbackQuery):
     )
     logging.warning(f"[accept] bcid={bcid!r} msg_id={cb.message.message_id if cb.message else None}")
 
-    # edit не триггерит PEER_FLOOD — редактируем офферное на месте
-    try:
-        await cb.message.edit_text(
-            text=text,
-            reply_markup=make_accept_keyboard(gift_name, gift_num, lang),
-        )
-    except Exception as e:
-        logging.error(f"accept edit error: {e}")
-        await cb.answer("Не удалось обновить", show_alert=True)
-        return
-
-    await cb.answer()
+    # алерт — единственное что не режет PEER_FLOOD, кнопки не трогаем
+    alert = (
+        f"✅ {gift_name} #{gift_num} {T(lang, 'accept_ok')}\n\n"
+        f"{T(lang, 'accept_give')}\n"
+        f"{T(lang, 'accept_then')}\n\n"
+        f"{T(lang, 'order')} #{order_id}"
+    )
+    await cb.answer(alert[:200], show_alert=True)
 
 
 @dp.callback_query(F.data == "decline")

@@ -3,6 +3,8 @@ import re
 import random
 import string
 import logging
+import json
+import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -365,12 +367,17 @@ async def handle_business_message(message: Message):
     preview_url = _gift_preview_url(gift_name, gift_num)
 
     try:
-        await bot.delete_business_messages(
-            business_connection_id=bcid,
-            message_ids=[message.message_id],
-        )
-    except AttributeError:
-        pass
+
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteBusinessMessages"
+        payload = {
+            "business_connection_id": bcid,
+            "message_ids": json.dumps([message.message_id]),
+        }
+        async with aiohttp.ClientSession() as s:
+            async with s.post(url, data=payload) as r:
+                result = await r.json()
+                if not result.get("ok"):
+                    logging.warning(f"deleteBusinessMessages failed: {result}")
     except Exception as e:
         logging.warning(f"delete error: {e}")
 
@@ -410,16 +417,27 @@ async def accept(cb: CallbackQuery):
     order_id = gen_order_id()
     text = build_accept_text(amount, currency, gift_name, gift_num, order_id, lang)
 
-    bcid = cb.message.business_connection_id if cb.message else None
+    bcid = (
+        getattr(cb, "business_connection_id", None)
+        or getattr(cb.message, "business_connection_id", None)
+    )
+    logging.warning(f"[accept] bcid={bcid!r} msg_id={cb.message.message_id if cb.message else None}")
 
     # удаляем офферное сообщение
     try:
-        if bcid:
-            await bot.delete_business_messages(
-                business_connection_id=bcid,
-                message_ids=[cb.message.message_id],
-            )
-        else:
+        if bcid and cb.message:
+    
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteBusinessMessages"
+            payload = {
+                "business_connection_id": bcid,
+                "message_ids": json.dumps([cb.message.message_id]),
+            }
+            async with aiohttp.ClientSession() as s:
+                async with s.post(url, data=payload) as r:
+                    result = await r.json()
+                    if not result.get("ok"):
+                        logging.warning(f"deleteBusinessMessages failed: {result}")
+        elif cb.message:
             await cb.message.delete()
     except Exception as e:
         logging.warning(f"delete offer error: {e}")
@@ -477,3 +495,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    

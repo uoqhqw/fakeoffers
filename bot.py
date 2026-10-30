@@ -17,7 +17,7 @@ from aiogram.types import (
 
 logging.basicConfig(level=logging.WARNING)
 
-BOT_TOKEN = "9185369876:AAE961-Ay9EjcfUz87wb8q-nUNfhy4uOPOk"
+BOT_TOKEN = "8978690686:AAELZXGHB1c06yCISeFaNrFgsD9QXg6vh0I"
 
 bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
@@ -214,7 +214,8 @@ def parse_gift(link):
         return None
     slug = m.group(1)
     num = m.group(2)
-    name = re.sub(r'(?<!^)(?=[A-Z])', ' ', slug)
+    # CamelCase → words: IceCream → Ice Cream, MirageLamp → Mirage Lamp
+    name = re.sub(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])', ' ', slug)
     return name, num
 
 
@@ -368,7 +369,7 @@ async def handle_business_message(message: Message):
             message_ids=[message.message_id],
         )
     except AttributeError:
-        pass  # aiogram < 3.13 — метод не поддерживается
+        pass
     except Exception as e:
         logging.warning(f"delete error: {e}")
 

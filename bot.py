@@ -17,7 +17,7 @@ from aiogram.types import (
 
 logging.basicConfig(level=logging.WARNING)
 
-BOT_TOKEN = "9185369876:AAE961-Ay9EjcfUz87wb8q-nUNfhy4uOPOk"
+BOT_TOKEN = "8760970558:AAExlhexHjLzkriSMFtP5lvo6aPxM_xP6_w"
 
 bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()

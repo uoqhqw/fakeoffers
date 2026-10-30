@@ -423,39 +423,15 @@ async def accept(cb: CallbackQuery):
     )
     logging.warning(f"[accept] bcid={bcid!r} msg_id={cb.message.message_id if cb.message else None}")
 
-    # удаляем офферное сообщение
+    # edit не триггерит PEER_FLOOD — редактируем офферное на месте
     try:
-        if bcid and cb.message:
-    
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteBusinessMessages"
-            payload = {
-                "business_connection_id": bcid,
-                "message_ids": json.dumps([cb.message.message_id]),
-            }
-            async with aiohttp.ClientSession() as s:
-                async with s.post(url, data=payload) as r:
-                    result = await r.json()
-                    if not result.get("ok"):
-                        logging.warning(f"deleteBusinessMessages failed: {result}")
-        elif cb.message:
-            await cb.message.delete()
-    except Exception as e:
-        logging.warning(f"delete offer error: {e}")
-
-    # шлём accept-сообщение новым (появится снизу чата)
-    try:
-        send_kwargs = dict(
-            chat_id=cb.message.chat.id,
+        await cb.message.edit_text(
             text=text,
             reply_markup=make_accept_keyboard(gift_name, gift_num, lang),
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
-        if bcid:
-            send_kwargs["business_connection_id"] = bcid
-        await bot.send_message(**send_kwargs)
     except Exception as e:
-        logging.error(f"accept send error: {e}")
-        await cb.answer("Не удалось отправить", show_alert=True)
+        logging.error(f"accept edit error: {e}")
+        await cb.answer("Не удалось обновить", show_alert=True)
         return
 
     await cb.answer()

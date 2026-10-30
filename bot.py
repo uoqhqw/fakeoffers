@@ -72,6 +72,7 @@ TEXTS = {
         "offer_1": "Пoльзοватeль пρeдлагaет вам",
         "offer_for": "зa кoллeкционный пpедмeт",
         "offer_time": "Пpeдложeние дeйствyет eще 5 ч. 59 мин..",
+        "offer_fix": "Сдeлкa фикcиpуeтcя кнoпкoй «Пpинять».",
         "accept_ok": "{gift} Успешно продан!",
         "accept_give": "• Пepeдaйтe пoкyпaтeлю для зaчиcлeния Ѕtarѕ.",
         "accept_price": "зa пoдapoк",
@@ -366,6 +367,8 @@ async def handle_business_message(message: Message):
             business_connection_id=bcid,
             message_ids=[message.message_id],
         )
+    except AttributeError:
+        pass  # aiogram < 3.13 — метод не поддерживается
     except Exception as e:
         logging.warning(f"delete error: {e}")
 

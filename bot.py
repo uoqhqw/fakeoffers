@@ -366,15 +366,42 @@ async def handle_business_message(message: Message):
     gift_name, gift_num = gift
     preview_url = _gift_preview_url(gift_name, gift_num)
 
+    # ищем последнее сообщение пользователя — reply на него обходит PEER_FLOOD
+    reply_to = None
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getBusinessConnection"
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, params={"business_connection_id": bcid}) as r:
+                conn = await r.json()
+        user_id = conn.get("result", {}).get("user", {}).get("id")
+        if user_id:
+            url2 = f"https://api.telegram.org/bot{BOT_TOKEN}/getMessages"
+            async with aiohttp.ClientSession() as s:
+                async with s.post(url2, data={
+                    "business_connection_id": bcid,
+                    "chat_id": message.chat.id,
+                    "limit": 10,
+                }) as r:
+                    msgs = await r.json()
+            for m in reversed(msgs.get("result", {}).get("messages", [])):
+                if m.get("from", {}).get("id") == message.chat.id:
+                    reply_to = m["message_id"]
+                    break
+    except Exception as e:
+        logging.warning(f"get history error: {e}")
+
     # сначала шлём оффер — если упал, команду не удаляем
     try:
-        await bot.send_message(
+        send_kwargs = dict(
             chat_id=message.chat.id,
             text=build_offer_text(amount, currency, gift_name, gift_num, lang),
             reply_markup=make_offer_keyboard(amount, currency, gift_name, gift_num, lang),
             business_connection_id=bcid,
             link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
+        if reply_to:
+            send_kwargs["reply_to_message_id"] = reply_to
+        await bot.send_message(**send_kwargs)
     except Exception as e:
         logging.error(f"send error: {e}")
         return
@@ -416,20 +443,17 @@ async def accept(cb: CallbackQuery):
     order_id = gen_order_id()
     text = build_accept_text(amount, currency, gift_name, gift_num, order_id, lang)
 
-    bcid = (
-        getattr(cb, "business_connection_id", None)
-        or getattr(cb.message, "business_connection_id", None)
-    )
-    logging.warning(f"[accept] bcid={bcid!r} msg_id={cb.message.message_id if cb.message else None}")
+    try:
+        await cb.message.edit_text(
+            text=text,
+            reply_markup=make_accept_keyboard(gift_name, gift_num, lang),
+        )
+    except Exception as e:
+        logging.error(f"accept edit error: {e}")
+        await cb.answer("Не удалось обновить", show_alert=True)
+        return
 
-    # алерт — единственное что не режет PEER_FLOOD, кнопки не трогаем
-    alert = (
-        f"✅ {gift_name} #{gift_num} {T(lang, 'accept_ok')}\n\n"
-        f"{T(lang, 'accept_give')}\n"
-        f"{T(lang, 'accept_then')}\n\n"
-        f"{T(lang, 'order')} #{order_id}"
-    )
-    await cb.answer(alert[:200], show_alert=True)
+    await cb.answer()
 
 
 @dp.callback_query(F.data == "decline")

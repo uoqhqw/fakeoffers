@@ -214,7 +214,6 @@ def parse_gift(link):
         return None
     slug = m.group(1)
     num = m.group(2)
-    # CamelCase → words: IceCream → Ice Cream, MirageLamp → Mirage Lamp
     name = re.sub(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])', ' ', slug)
     return name, num
 
@@ -380,8 +379,7 @@ async def handle_business_message(message: Message):
             reply_markup=make_offer_keyboard(amount, currency, gift_name, gift_num, lang),
             business_connection_id=bcid,
             link_preview_options=LinkPreviewOptions(
-                url=preview_url,
-                prefer_large_media=True,
+                is_disabled=True,
             ),
         )
     except Exception as e:

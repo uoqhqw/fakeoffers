@@ -382,8 +382,10 @@ async def handle_business_message(message: Message):
         logging.warning(f"delete error: {e}")
 
     reply_to = _last_user_msg.get(message.chat.id)
+    logging.warning(f"[send] chat={message.chat.id} reply_to={reply_to}")
 
     try:
+        from aiogram.types import ReplyParameters
         send_kwargs = dict(
             chat_id=message.chat.id,
             text=build_offer_text(amount, currency, gift_name, gift_num, lang),
@@ -395,10 +397,11 @@ async def handle_business_message(message: Message):
             ),
         )
         if reply_to:
-            send_kwargs["reply_to_message_id"] = reply_to
+            send_kwargs["reply_parameters"] = ReplyParameters(message_id=reply_to)
         await bot.send_message(**send_kwargs)
+        logging.warning(f"[send] OK")
     except Exception as e:
-        logging.error(f"send error: {e}")
+        logging.warning(f"[send] ERROR: {e}")
         return
 
 

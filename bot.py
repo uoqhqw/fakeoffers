@@ -1,3 +1,6 @@
+import subprocess, sys
+subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "aiogram==3.17.0", "aiohttp"])
+
 import asyncio
 import re
 import random

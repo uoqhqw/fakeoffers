@@ -240,12 +240,7 @@ def gift_link_bold(gift_name, gift_num, lang):
 
 
 def build_offer_text(amount, currency, gift_name, gift_num, lang):
-    slug = gift_name.replace(" ", "")
-    preview_url = f"https://t.me/nft/{slug}-{gift_num}"
-    # невидимая ссылка — Telegram берёт её для превью вместо url= параметра
-    hidden = f'<a href="{preview_url}"> </a>'
     return (
-        f'{hidden}'
         f'{em(E_GIFT, "🎁")} {T(lang, "offer_1")}\n'
         f'{amount_line(amount, currency, lang)} {T(lang, "offer_for")} '
         f'{gift_link_bold(gift_name, gift_num, lang)}.\n\n'
@@ -342,6 +337,10 @@ def gen_order_id():
     )
 
 
+# chat_id → последний message_id от пользователя (не от оператора)
+_last_user_msg: dict[int, int] = {}
+
+
 def _business_offer_from_owner(message: Message) -> bool:
     if message.chat.type != "private" or not message.from_user:
         return False
@@ -358,7 +357,10 @@ async def handle_business_message(message: Message):
     bcid = message.business_connection_id
     if not bcid:
         return
+
+    # сообщение от пользователя — запоминаем
     if not _business_offer_from_owner(message):
+        _last_user_msg[message.chat.id] = message.message_id
         return
 
     parsed = parse_command(message.text or "")
@@ -379,17 +381,22 @@ async def handle_business_message(message: Message):
     except Exception as e:
         logging.warning(f"delete error: {e}")
 
+    reply_to = _last_user_msg.get(message.chat.id)
+
     try:
-        await bot.send_message(
+        send_kwargs = dict(
             chat_id=message.chat.id,
             text=build_offer_text(amount, currency, gift_name, gift_num, lang),
             reply_markup=make_offer_keyboard(amount, currency, gift_name, gift_num, lang),
             business_connection_id=bcid,
             link_preview_options=LinkPreviewOptions(
+                url=_gift_preview_url(gift_name, gift_num),
                 prefer_large_media=True,
-                show_above_text=True,
             ),
         )
+        if reply_to:
+            send_kwargs["reply_to_message_id"] = reply_to
+        await bot.send_message(**send_kwargs)
     except Exception as e:
         logging.error(f"send error: {e}")
         return

@@ -5,7 +5,6 @@ import string
 import logging
 import json
 import time
-import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -17,20 +16,25 @@ from aiogram.types import (
     InlineKeyboardButton,
     LinkPreviewOptions,
 )
+from telethon import TelegramClient
+from telethon.tl.functions.messages import SendMessageRequest
+from telethon.tl.types import InputPeerUser, ReplyInlineMarkup, KeyboardButtonCallback, KeyboardButtonRow
 
 logging.basicConfig(level=logging.WARNING)
 
-BOT_TOKEN = "8978690686:AAELZXGHB1c06yCISeFaNrFgsD9QXg6vh0I"
+BOT_TOKEN  = "8978690686:AAELZXGHB1c06yCISeFaNrFgsD9QXg6vh0I"
+API_ID     = 34624108
+API_HASH   = "e8095d777dea9b5066a130eab3f7aa67"
 
 bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
+dp  = Dispatcher()
+userbot = TelegramClient("userbot_session", API_ID, API_HASH)
 
-GIFT_RE = re.compile(r"t\.me/nft/([A-Za-z]+?)-(\d+)")
+GIFT_RE  = re.compile(r"t\.me/nft/([A-Za-z]+?)-(\d+)")
 RECIPIENT = "@tradiqx"
 LANG_TAGS = {"ru", "ukr", "eng", "cn", "en", "uk", "zh"}
 
 E_GEM   = "5318901904686754959"
-E_WARN  = "6030563507299160824"
 E_OK    = "5774022692642492953"
 E_NO    = "5774077015388852135"
 E_TIMER = "6037268453759389862"
@@ -39,14 +43,12 @@ E_STAR  = "6028338546736107668"
 E_CHECK = "5774022692642492953"
 E_LOCK  = "5774077015388852135"
 
-# chat_id → последний message_id от юзера
-_last_user_msg: dict[int, int] = {}
-# chat_id → время последней отправки оффера
-_last_sent: dict[int, float] = {}
+_last_user_msg: dict[int, int]   = {}
+_last_sent:     dict[int, float] = {}
 SEND_COOLDOWN = 30.0
 
 
-def em(eid: str, fallback: str) -> str:
+def em(eid, fallback):
     return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
 
 
@@ -152,7 +154,6 @@ def parse_command(text):
         parts = parts[1:]
     if parts and parts[0].startswith("@"):
         parts = parts[1:]
-    # пропускаем триггер-слово (грокс или любое)
     if parts and not parts[0].startswith("http") and not parts[0].startswith("t.me"):
         try:
             float(parts[0].replace(",", "."))
@@ -203,7 +204,7 @@ def parse_gift(link):
     if not m:
         return None
     slug = m.group(1)
-    num = m.group(2)
+    num  = m.group(2)
     name = re.sub(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])', ' ', slug)
     return name, num
 
@@ -246,7 +247,7 @@ def build_accept_text(amount, currency, gift_name, gift_num, order_id, lang):
 
 
 def pack_offer(amount, currency, gift_name, gift_num, lang):
-    cur = "G" if currency == "GRAM" else "S"
+    cur  = "G" if currency == "GRAM" else "S"
     name = gift_name.replace(" ", "")
     return f"a|{gift_num}|{amount:.0f}|{cur}|{name}|{lang}"
 
@@ -321,6 +322,34 @@ def gen_order_id():
     )
 
 
+async def userbot_send(chat_id: int, text: str, reply_to: int | None, amount, currency, gift_name, gift_num, lang):
+    """Отправка через userbot — обходит PEER_FLOOD полностью."""
+    try:
+        entity = await userbot.get_entity(chat_id)
+        buttons = ReplyInlineMarkup(rows=[
+            KeyboardButtonRow(buttons=[
+                KeyboardButtonCallback(
+                    text=T(lang, "btn_decline"),
+                    data=b"decline",
+                ),
+                KeyboardButtonCallback(
+                    text=T(lang, "btn_accept"),
+                    data=pack_offer(amount, currency, gift_name, gift_num, lang).encode(),
+                ),
+            ])
+        ])
+        await userbot(SendMessageRequest(
+            peer=entity,
+            message=text,
+            reply_to_msg_id=reply_to,
+            reply_markup=buttons,
+            no_webpage=True,
+            parse_mode="html",
+        ))
+    except Exception as e:
+        logging.error(f"userbot send error: {e}")
+
+
 @dp.business_message(F.text)
 async def handle_business_message(message: Message):
     bcid = message.business_connection_id
@@ -330,7 +359,6 @@ async def handle_business_message(message: Message):
     parsed = parse_command(message.text or "")
 
     if not parsed:
-        # любое сообщение не-команда — кешируем как последнее сообщение в чате
         _last_user_msg[message.chat.id] = message.message_id
         return
 
@@ -345,29 +373,28 @@ async def handle_business_message(message: Message):
         return
     gift_name, gift_num = gift
 
-    # приоритет: reply оператора → кеш последнего сообщения в чате
     reply_to = None
     if message.reply_to_message:
         reply_to = message.reply_to_message.message_id
     if not reply_to:
         reply_to = _last_user_msg.get(message.chat.id)
 
-    try:
-        send_kwargs = dict(
-            chat_id=message.chat.id,
-            text=build_offer_text(amount, currency, gift_name, gift_num, lang),
-            reply_markup=make_offer_keyboard(amount, currency, gift_name, gift_num, lang),
-            business_connection_id=bcid,
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-        )
-        if reply_to:
-            send_kwargs["reply_to_message_id"] = reply_to
-        await bot.send_message(**send_kwargs)
-    except Exception as e:
-        logging.error(f"send error: {e}")
-        return
+    text = build_offer_text(amount, currency, gift_name, gift_num, lang)
 
+    await userbot_send(
+        chat_id=message.chat.id,
+        text=text,
+        reply_to=reply_to,
+        amount=amount,
+        currency=currency,
+        gift_name=gift_name,
+        gift_num=gift_num,
+        lang=lang,
+    )
+
+    # удаляем команду оператора
     try:
+        import aiohttp
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteBusinessMessages"
         payload = {
             "business_connection_id": bcid,
@@ -436,7 +463,9 @@ async def noop(cb: CallbackQuery):
 
 
 async def main():
-    print("Bot started")
+    await userbot.start()
+    print("Userbot started")
+
     await dp.start_polling(
         bot,
         allowed_updates=[
@@ -448,4 +477,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    with userbot:
+        userbot.loop.run_until_complete(main())

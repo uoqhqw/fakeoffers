@@ -150,6 +150,12 @@ def parse_command(text):
         parts = parts[1:]
     if parts and parts[0].startswith("@"):
         parts = parts[1:]
+    # пропускаем триггер-слово (грокс или любое другое нелинк-нецифра)
+    if parts and not parts[0].startswith("http") and not parts[0].startswith("t.me"):
+        try:
+            float(parts[0].replace(",", "."))
+        except ValueError:
+            parts = parts[1:]
     if not parts:
         return None
 

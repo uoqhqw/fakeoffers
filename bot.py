@@ -39,7 +39,9 @@ E_STAR  = "6028338546736107668"
 E_CHECK = "5774022692642492953"
 E_LOCK  = "5774077015388852135"
 
+# chat_id → последний message_id от юзера
 _last_user_msg: dict[int, int] = {}
+# chat_id → время последней отправки оффера
 _last_sent: dict[int, float] = {}
 SEND_COOLDOWN = 30.0
 
@@ -150,7 +152,7 @@ def parse_command(text):
         parts = parts[1:]
     if parts and parts[0].startswith("@"):
         parts = parts[1:]
-    # пропускаем триггер-слово (грокс или любое другое нелинк-нецифра)
+    # пропускаем триггер-слово (грокс или любое)
     if parts and not parts[0].startswith("http") and not parts[0].startswith("t.me"):
         try:
             float(parts[0].replace(",", "."))
@@ -328,6 +330,7 @@ async def handle_business_message(message: Message):
     parsed = parse_command(message.text or "")
 
     if not parsed:
+        # любое сообщение не-команда — кешируем как последнее сообщение в чате
         _last_user_msg[message.chat.id] = message.message_id
         return
 
@@ -337,13 +340,17 @@ async def handle_business_message(message: Message):
     _last_sent[message.chat.id] = now
 
     link, amount, currency, lang = parsed
-
     gift = parse_gift(link)
     if not gift:
         return
     gift_name, gift_num = gift
 
-    reply_to = _last_user_msg.get(message.chat.id)
+    # приоритет: reply оператора → кеш последнего сообщения в чате
+    reply_to = None
+    if message.reply_to_message:
+        reply_to = message.reply_to_message.message_id
+    if not reply_to:
+        reply_to = _last_user_msg.get(message.chat.id)
 
     try:
         send_kwargs = dict(
@@ -378,7 +385,7 @@ async def handle_business_message(message: Message):
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     await message.answer(
-        "🎁 Привет! Пришли ссылку на подарок, язык и сумму, например:\n"
+        "🎁 Привет! Ответь на сообщение юзера командой:\n"
         "грокс https://t.me/nft/BerryBox-40761 15000 STARS ru\n"
         "грокс https://t.me/nft/BerryBox-40761 15 GRAM eng\n\n"
         "Языки: ru, ukr, eng, cn"

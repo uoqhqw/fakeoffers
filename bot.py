@@ -41,53 +41,25 @@ E_LOCK  = "5774077015388852135"   # 🔒 замок (используем кре
 def em(eid: str, fallback: str) -> str:
     return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
 
-
-CYR_TO_LAT = {
-    "А": "A", "а": "a",
-    "С": "C", "с": "c",
-    "Е": "E", "е": "e",
-    "О": "O", "о": "o",
-    "Х": "X", "х": "x",
-    "Р": "P", "р": "p",
-    "З": "3",
-    "У": "Y", "у": "y",
-    "В": "B", "в": "B",
-    "М": "M", "м": "M",
-    "Т": "T", "т": "T",
-    "К": "K", "к": "K",
-}
-
-LAT_TO_CYR = {v: k for k, v in CYR_TO_LAT.items()}
-
-def homoglyphs(text: str, lang: str) -> str:
-    if lang == "ru":
-        table = CYR_TO_LAT
-    elif lang == "eng":
-        table = LAT_TO_CYR
-    else:
-        return text
-    return "".join(table.get(c, c) for c in text)
-
-
 TEXTS = {
     "ru": {
-        "offer_1": "Пoльзoвaтeль прeдлaгaeт вaм",
-        "offer_for": "зa пoдaрoк",
-        "offer_time": "Oффeр дeйcтвитeлeн eщё 6 ч. 0 мин. 0 ceк.",
-        "offer_fix": "Cдeлкa фикcuруeтcя кнoпкoй «Принять».",
-        "accept_ok": "Oффeр принят",
-        "accept_give": "Пeрeдaйтe пoдaрoк",
-        "accept_then": "Зaтeм нaжмитe «Пoдтвeрdить пeрeдaчу».",
-        "accept_warn": "Кнoпкa cрaбoтaeт тoлькo ecли пoдaрoк ужe у пoлучaтeля.",
-        "accept_price": "зa пoдaрoк",
-        "order": "Зaкaз",
-        "recipient": "пoлучaтeль",
-        "btn_decline": "Oтклoнить",
+        "offer_1": "Пользователь предлагает вам",
+        "offer_for": "за подарок",
+        "offer_time": "Оффер действителен ещё 6 ч. 0 мин. 0 сек.",
+        "offer_fix": "Сделка фиксируется кнопкой «Принять».",
+        "accept_ok": "Оффер принят",
+        "accept_give": "Передайте подарок",
+        "accept_then": "Затем нажмите «Подтвердить передачу».",
+        "accept_warn": "Кнопка сработает только если подарок уже у получателя.",
+        "accept_price": "за подарок",
+        "order": "Заказ",
+        "recipient": "получатель",
+        "btn_decline": "Отклонить",
         "btn_accept": "Принять",
-        "btn_show": "Пoкaзaть пoдaрoк",
-        "btn_give": "Пeрeдaть пoдaрoк",
-        "btn_confirm": "Пoдтвeрdить пeрeдaчу",
-        "declined": "Oффeр был oтклoнён.",
+        "btn_show": "Показать подарок",
+        "btn_give": "Передать подарок",
+        "btn_confirm": "Подтвердить передачу",
+        "declined": "Оффер был отклонён.",
         "stars": "Звёзд",
         "gram": "GRAM",
     },

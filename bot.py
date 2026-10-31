@@ -390,7 +390,6 @@ async def handle_business_message(message: Message):
             chat_id=message.chat.id,
             text=build_offer_text(amount, currency, gift_name, gift_num, lang),
             reply_markup=make_offer_keyboard(amount, currency, gift_name, gift_num, lang),
-            business_connection_id=bcid,
         )
         if reply_to:
             send_kwargs["reply_parameters"] = ReplyParameters(message_id=reply_to)

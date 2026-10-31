@@ -42,7 +42,7 @@ SEND_COOLDOWN = 30.0
 
 
 def em(eid, fallback):
-    return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
+    return fallback
 
 
 TEXTS = {
@@ -262,11 +262,9 @@ def unpack_offer(data):
 
 def make_offer_keyboard(amount, currency, gift_name, gift_num, lang):
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=T(lang, "btn_decline"), callback_data="decline",
-                             icon_custom_emoji_id=E_NO),
+        InlineKeyboardButton(text=T(lang, "btn_decline"), callback_data="decline"),
         InlineKeyboardButton(text=T(lang, "btn_accept"),
-                             callback_data=pack_offer(amount, currency, gift_name, gift_num, lang),
-                             icon_custom_emoji_id=E_OK),
+                             callback_data=pack_offer(amount, currency, gift_name, gift_num, lang)),
     ]])
 
 
@@ -275,14 +273,11 @@ def make_accept_keyboard(gift_name, gift_num, lang):
     recipient = RECIPIENT.lstrip("@")
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=T(lang, "btn_show"),
-                              url=f"https://t.me/nft/{slug}-{gift_num}",
-                              icon_custom_emoji_id=E_GIFT)],
+                              url=f"https://t.me/nft/{slug}-{gift_num}")],
         [InlineKeyboardButton(text=T(lang, "btn_give"),
-                              url=f"tg://send_gift?to={recipient}",
-                              icon_custom_emoji_id=E_GIFT)],
+                              url=f"tg://send_gift?to={recipient}")],
         [InlineKeyboardButton(text=T(lang, "btn_confirm"),
-                              callback_data="noop",
-                              icon_custom_emoji_id=E_CHECK)],
+                              callback_data="noop")],
     ])
 
 

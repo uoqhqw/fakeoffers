@@ -5,6 +5,7 @@ import string
 import logging
 import json
 import time
+import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -17,20 +18,19 @@ from aiogram.types import (
     LinkPreviewOptions,
 )
 from telethon import TelegramClient
-from telethon.tl.functions.messages import SendMessageRequest
-from telethon.tl.types import InputPeerUser, ReplyInlineMarkup, KeyboardButtonCallback, KeyboardButtonRow
+from telethon.tl.custom import Button
 
 logging.basicConfig(level=logging.WARNING)
 
-BOT_TOKEN  = "8978690686:AAELZXGHB1c06yCISeFaNrFgsD9QXg6vh0I"
-API_ID     = 34624108
-API_HASH   = "e8095d777dea9b5066a130eab3f7aa67"
+BOT_TOKEN = "8978690686:AAELZXGHB1c06yCISeFaNrFgsD9QXg6vh0I"
+API_ID    = 34624108
+API_HASH  = "e8095d777dea9b5066a130eab3f7aa67"
 
-bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp  = Dispatcher()
-userbot = TelegramClient("userbot_session", API_ID, API_HASH)
+bot     = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp      = Dispatcher()
+userbot = TelegramClient("/app/userbot_session", API_ID, API_HASH)
 
-GIFT_RE  = re.compile(r"t\.me/nft/([A-Za-z]+?)-(\d+)")
+GIFT_RE   = re.compile(r"t\.me/nft/([A-Za-z]+?)-(\d+)")
 RECIPIENT = "@tradiqx"
 LANG_TAGS = {"ru", "ukr", "eng", "cn", "en", "uk", "zh"}
 
@@ -162,10 +162,10 @@ def parse_command(text):
     if not parts:
         return None
 
-    link = None
-    amount = None
+    link     = None
+    amount   = None
     currency = "STARS"
-    lang = "ru"
+    lang     = "ru"
 
     for p in parts:
         low = p.lower()
@@ -322,30 +322,23 @@ def gen_order_id():
     )
 
 
-async def userbot_send(chat_id: int, text: str, reply_to: int | None, amount, currency, gift_name, gift_num, lang):
-    """Отправка через userbot — обходит PEER_FLOOD полностью."""
+async def userbot_send(chat_id, text, reply_to, amount, currency, gift_name, gift_num, lang):
     try:
-        entity = await userbot.get_entity(chat_id)
-        buttons = ReplyInlineMarkup(rows=[
-            KeyboardButtonRow(buttons=[
-                KeyboardButtonCallback(
-                    text=T(lang, "btn_decline"),
-                    data=b"decline",
-                ),
-                KeyboardButtonCallback(
-                    text=T(lang, "btn_accept"),
-                    data=pack_offer(amount, currency, gift_name, gift_num, lang).encode(),
-                ),
-            ])
-        ])
-        await userbot(SendMessageRequest(
-            peer=entity,
+        accept_data = pack_offer(amount, currency, gift_name, gift_num, lang)
+        buttons = [
+            [
+                Button.inline(T(lang, "btn_decline"), b"decline"),
+                Button.inline(T(lang, "btn_accept"), accept_data.encode()),
+            ]
+        ]
+        await userbot.send_message(
+            entity=chat_id,
             message=text,
-            reply_to_msg_id=reply_to,
-            reply_markup=buttons,
-            no_webpage=True,
+            reply_to=reply_to,
+            buttons=buttons,
+            link_preview=False,
             parse_mode="html",
-        ))
+        )
     except Exception as e:
         logging.error(f"userbot send error: {e}")
 
@@ -392,9 +385,7 @@ async def handle_business_message(message: Message):
         lang=lang,
     )
 
-    # удаляем команду оператора
     try:
-        import aiohttp
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteBusinessMessages"
         payload = {
             "business_connection_id": bcid,
@@ -465,7 +456,7 @@ async def noop(cb: CallbackQuery):
 async def main():
     await userbot.start()
     print("Userbot started")
-
+    print("Bot started")
     await dp.start_polling(
         bot,
         allowed_updates=[
@@ -477,5 +468,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    with userbot:
-        userbot.loop.run_until_complete(main())
+    asyncio.run(main())

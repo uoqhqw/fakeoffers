@@ -261,7 +261,6 @@ def gen_order_id():
     return "TG-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=10))
 
 async def sender_worker():
-    backoff = 1.5
     while True:
         chat_id, text, reply_markup, bcid, message_id = await message_queue.get()
         try:
@@ -275,16 +274,8 @@ async def sender_worker():
                 business_connection_id=bcid,
                 message_ids=[message_id],
             )
-            backoff = 1.5
         except Exception as e:
-            err_str = str(e)
-            if "PEER_FLOOD" in err_str:
-                logging.error(f"Flood guard tripped. Backing off for {backoff}s")
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 60.0)
-                await message_queue.put((chat_id, text, reply_markup, bcid, message_id))
-            else:
-                logging.error(f"worker error: {e}")
+            logging.error(f"worker error: {e}")
         finally:
             message_queue.task_done()
             await asyncio.sleep(2.0)
@@ -309,7 +300,7 @@ async def handle_business_message(message: Message):
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer("🎁 Бот запущен. Пришли ссылку на подарок, язык и сумму.")
+    await message.answer("🎁 Очередь сброшена. Пришли ссылку на подарок.")
 
 @dp.callback_query(F.data.startswith("a|"))
 async def accept(cb: CallbackQuery):

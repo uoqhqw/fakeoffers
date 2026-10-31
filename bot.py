@@ -3,6 +3,8 @@ import re
 import random
 import string
 import logging
+import json
+import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -389,10 +391,17 @@ async def handle_business_message(message: Message):
 
     # send прошёл — удаляем команду
     try:
-        await bot.delete_business_messages(
-            business_connection_id=bcid,
-            message_ids=[message.message_id],
-        )
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/deleteBusinessMessages",
+                data={
+                    "business_connection_id": bcid,
+                    "message_ids": json.dumps([message.message_id]),
+                },
+            ) as r:
+                res = await r.json()
+                if not res.get("ok"):
+                    logging.warning(f"deleteBusinessMessages failed: {res}")
     except Exception as e:
         logging.warning(f"delete error: {e}")
 

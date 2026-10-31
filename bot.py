@@ -391,10 +391,6 @@ async def handle_business_message(message: Message):
             text=build_offer_text(amount, currency, gift_name, gift_num, lang),
             reply_markup=make_offer_keyboard(amount, currency, gift_name, gift_num, lang),
             business_connection_id=bcid,
-            link_preview_options=LinkPreviewOptions(
-                url=_gift_preview_url(gift_name, gift_num),
-                prefer_large_media=True,
-            ),
         )
         if reply_to:
             send_kwargs["reply_parameters"] = ReplyParameters(message_id=reply_to)

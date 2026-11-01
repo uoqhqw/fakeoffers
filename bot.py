@@ -184,17 +184,14 @@ async def accept_offer(cb: CallbackQuery):
     gift_num = int(gift_num_str)
     
     currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
+    gift_name = slug.replace("-", " ")
     
-    # ==========================================
-    # И ТУТ ТЫ МОЖЕШЬ ИЗМЕНИТЬ ТЕКСТ НА СООБЩЕНИЕ КОТОРОЕ ХОЧЕШЬ:
-    # ==========================================
     success_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
     text = (
-        f"{success_emoji} <b>Предмет #{gift_num} успешно продан!</b>\n\n"
+        f"{success_emoji} <a href=\"https://t.me/nft/{slug}-{gift_num}\"><b>{gift_name} #{gift_num}</b></a> <b>успешно продан!</b>\n\n"
         f"<b>• Передайте покупателю для зачисления {currency_name}.</b>\n"
         f"\u200B"
     )
-    # ==========================================
     
     chat_id = cb.message.chat.id
     message_id = cb.message.message_id
@@ -306,4 +303,7 @@ async def main():
     await dp.start_polling(bot, allowed_updates=["callback_query", "business_connection", "business_message", "message"])
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Бот остановлен.")

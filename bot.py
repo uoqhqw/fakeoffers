@@ -289,12 +289,12 @@ async def decline_offer(cb: CallbackQuery):
 async def noop_handler(cb: CallbackQuery):
     await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
 
-# Фоновый воркер с безопасной задержкой против PEER_FLOOD
+# Фоновый воркер с увеличенной плавной задержкой (3.0 - 5.0 сек) для защиты от флуда
 async def sender_worker():
     while True:
         task = await message_queue.get()
         try:
-            await asyncio.sleep(random.uniform(1.0, 1.5))
+            await asyncio.sleep(random.uniform(3.0, 5.0))
 
             text = build_offer_text(
                 task["gift_name"], 

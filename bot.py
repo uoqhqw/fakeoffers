@@ -198,16 +198,11 @@ async def accept_offer(cb: CallbackQuery):
     await cb.answer("✅ Успешно принято!")
 
     try:
+        await asyncio.sleep(0.6)  # Защита от частых запросов
+        
+        # СНАЧАЛА отправляем новое сообщение
         if bcid:
-            try:
-                await bot.delete_business_messages(business_connection_id=bcid, message_ids=[message_id])
-            except Exception:
-                pass
-            
-            # Защита от PEER_FLOOD при частых запросах
-            await asyncio.sleep(0.4)
-            
-            await bot.send_message(
+            sent_msg = await bot.send_message(
                 chat_id=chat_id,
                 text=text,
                 parse_mode=ParseMode.HTML,
@@ -215,34 +210,26 @@ async def accept_offer(cb: CallbackQuery):
                 business_connection_id=bcid,
                 link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
+            # Если отправилось успешно — удаляем старое
+            if sent_msg:
+                try:
+                    await bot.delete_business_messages(business_connection_id=bcid, message_ids=[message_id])
+                except Exception:
+                    pass
         else:
-            try:
-                await bot.delete_message(chat_id=chat_id, message_id=message_id)
-            except Exception:
-                pass
-            await asyncio.sleep(0.4)
-            await bot.send_message(
+            sent_msg = await bot.send_message(
                 chat_id=chat_id,
                 text=text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=make_accept_keyboard(lang),
                 link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
-    except TelegramRetryAfter as e:
-        wait_time = e.retry_after + 1
-        logging.warning(f"Accept flood control! Waiting {wait_time}s.")
-        await asyncio.sleep(wait_time)
-        try:
-            await bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=make_accept_keyboard(lang),
-                business_connection_id=bcid,
-                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
-            )
-        except Exception as ex:
-            logging.error(f"Retry accept error: {ex}")
+            if sent_msg:
+                try:
+                    await bot.delete_message(chat_id=chat_id, message_id=message_id)
+                except Exception:
+                    pass
+
     except Exception as e:
         error_str = str(e)
         logging.error(f"Accept error: {error_str}")

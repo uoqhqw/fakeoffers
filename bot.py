@@ -54,8 +54,8 @@ LOCALES = {
 def build_offer_text(gift_name, gift_num, amount, currency_type, lang):
     slug = gift_name.replace(" ", "")
     
-    # Жесткий выбор эмодзи под валюту
-    if currency_type == "gram":
+    # Жесткий выбор эмодзи под валюту (Gram или Stars)
+    if currency_type.lower() == "gram":
         emoji_id = "5298988357538328017"
         fallback_char = "💎"
     else:
@@ -185,8 +185,8 @@ async def accept_offer(cb: CallbackQuery):
 
     _, gift_name, gift_num_str, amount, currency_type, lang = parts
     gift_num = int(gift_num_str)
-    currency_name = "Gram" if currency_type == "gram" else "Stars"
     
+    currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
     text = build_accept_text(gift_name, gift_num, currency_name, lang)
     bcid = cb.message.business_connection_id
     chat_id = cb.message.chat.id
@@ -222,6 +222,7 @@ async def accept_offer(cb: CallbackQuery):
         if "message is not modified" in str(e) or "query is too old" in str(e):
             await cb.answer("✅ Сделка уже зафиксирована!", show_alert=True)
         else:
+            logging.error(f"Accept error: {e}")
             await cb.answer("✅ Предложение принято!", show_alert=True)
 
 @dp.callback_query(F.data.startswith("d|"))
@@ -245,6 +246,7 @@ async def sender_worker():
             text = build_offer_text(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
             keyboard = make_offer_keyboard(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
 
+            # Отправка без reply_to_message_id, чтобы в чате не было плашки «Удаленное сообщение»
             sent_msg = await bot.send_message(
                 chat_id=task["chat_id"],
                 text=text,

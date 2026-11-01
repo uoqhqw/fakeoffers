@@ -209,8 +209,8 @@ async def accept_offer(cb: CallbackQuery):
 
     await cb.answer("✅ Успешно принято!", show_alert=True)
 
+    # 1. Удаляем старое сообщение с карточкой
     try:
-        # Жестко удаляем старое сообщение с карточкой у мамонта
         if bcid:
             await bot.delete_business_messages(business_connection_id=bcid, message_ids=[message_id])
         else:
@@ -218,8 +218,11 @@ async def accept_offer(cb: CallbackQuery):
     except Exception as e:
         logging.error(f"Delete offer msg error: {e}")
 
+    # 2. Небольшая пауза против PEER_FLOOD
+    await asyncio.sleep(0.8)
+
+    # 3. Отправляем новое сообщение с инструкцией и кнопкой передачи
     try:
-        # Присылаем новое сообщение с текстом успеха и кнопкой перевода
         if bcid:
             await bot.send_message(
                 chat_id=chat_id,

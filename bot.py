@@ -198,49 +198,25 @@ async def accept_offer(cb: CallbackQuery):
     await cb.answer("✅ Успешно принято!")
 
     try:
-        await asyncio.sleep(0.6)  # Защита от частых запросов
-        
-        # СНАЧАЛА отправляем новое сообщение
+        # Редактируем сообщение через Telegram Business API без создания новых сообщений
+        edit_kwargs = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": ParseMode.HTML,
+            "reply_markup": make_accept_keyboard(lang),
+            "link_preview_options": LinkPreviewOptions(is_disabled=False, show_above_text=True)
+        }
         if bcid:
-            sent_msg = await bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=make_accept_keyboard(lang),
-                business_connection_id=bcid,
-                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
-            )
-            # Если отправилось успешно — удаляем старое
-            if sent_msg:
-                try:
-                    await bot.delete_business_messages(business_connection_id=bcid, message_ids=[message_id])
-                except Exception:
-                    pass
-        else:
-            sent_msg = await bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=make_accept_keyboard(lang),
-                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
-            )
-            if sent_msg:
-                try:
-                    await bot.delete_message(chat_id=chat_id, message_id=message_id)
-                except Exception:
-                    pass
+            edit_kwargs["business_connection_id"] = bcid
 
+        await bot.edit_message_text(**edit_kwargs)
     except Exception as e:
         error_str = str(e)
-        logging.error(f"Accept error: {error_str}")
-        if "PEER_FLOOD" in error_str:
-            target_user_id = client_user_ids.get(chat_id)
-            loc = LOCALES.get(lang, LOCALES["ru"])
-            if target_user_id:
-                try:
-                    await bot.send_message(chat_id=target_user_id, text=loc["flood_error"])
-                except Exception:
-                    pass
+        if "message is not modified" in error_str:
+            pass
+        else:
+            logging.error(f"Edit message error: {error_str}")
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):

@@ -199,7 +199,6 @@ async def accept_offer(cb: CallbackQuery):
 
     _, slug, gift_num_str, amount, currency_type, lang = parts
     gift_num = int(gift_num_str)
-    
     gift_name = slug
     
     currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
@@ -207,6 +206,8 @@ async def accept_offer(cb: CallbackQuery):
     bcid = cb.message.business_connection_id
     chat_id = cb.message.chat.id
     message_id = cb.message.message_id
+
+    await cb.answer("✅ Успешно принято!", show_alert=True)
 
     try:
         await bot.edit_message_text(
@@ -218,23 +219,16 @@ async def accept_offer(cb: CallbackQuery):
             business_connection_id=bcid,
             link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
         )
-        await cb.answer("✅ Предложение успешно принято!")
     except Exception as e:
-        error_str = str(e)
-        if "message is not modified" in error_str or "query is too old" in error_str:
-            try:
-                await bot.edit_message_reply_markup(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    reply_markup=None,
-                    business_connection_id=bcid
-                )
-            except Exception:
-                pass
-            await cb.answer("✅ Сделка уже зафиксирована!", show_alert=True)
-        else:
-            logging.error(f"Accept error: {error_str}")
-            await cb.answer("✅ Предложение принято!", show_alert=True)
+        try:
+            await bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=None,
+                business_connection_id=bcid
+            )
+        except Exception:
+            pass
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):

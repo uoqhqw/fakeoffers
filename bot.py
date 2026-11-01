@@ -70,6 +70,64 @@ def unpack_offer(cb_data: str):
         pass
     return None
 
+# Быстрая команда прямо в чате: qq [ссылка] [сумма] [покупатель(необяз)]
+@dp.message(F.text & F.text.startswith("qq"))
+async def cmd_quick_offer(message: Message):
+    parts = message.text.split()
+    
+    if len(parts) < 3:
+        await message.reply(
+            "❌ Неверный формат!\n"
+            "Используй: <code>qq [ссылка_на_нфт] [сумма] [покупатель]</code>\n"
+            "Пример: <code>qq https://t.me/nft/DurovsCap-123 500 cryptan</code>"
+        )
+        return
+
+    nft_url = parts[1]
+    amount_str = parts[2]
+    sender_username = parts[3] if len(parts) > 3 else "cryptan"
+
+    try:
+        amount = int(amount_str)
+    except ValueError:
+        await message.reply("❌ Сумма должна быть числом!")
+        return
+
+    try:
+        slug_part = nft_url.split("/nft/")[-1]
+        if "-" in slug_part:
+            gift_name_raw, gift_num_str = slug_part.rsplit("-", 1)
+            gift_num = int(gift_num_str)
+            gift_name = gift_name_raw
+        else:
+            await message.reply("❌ Неверный формат ссылки NFT (нет номера через дефис)")
+            return
+    except Exception as e:
+        await message.reply(f"❌ Ошибка разбора ссылки NFT: {e}")
+        return
+
+    # Кладем в очередь отправки
+    await message_queue.put((
+        message.chat.id,
+        sender_username,
+        amount,
+        "XTR",
+        gift_name,
+        gift_num,
+        "ru",
+        message.business_connection_id
+    ))
+
+    # Удаляем сообщение с командой qq
+    try:
+        if message.business_connection_id:
+            await bot.delete_business_messages(
+                business_connection_id=message.business_connection_id,
+                message_ids=[message.message_id]
+            )
+    except Exception:
+        pass
+
 @dp.callback_query(F.data.startswith("a|"))
 async def accept_offer(cb: CallbackQuery):
     data = unpack_offer(cb.data)
@@ -83,7 +141,7 @@ async def accept_offer(cb: CallbackQuery):
     chat_id = cb.message.chat.id
 
     try:
-        # 1. Удаляем старое сообщение с оффером
+        # 1. Удаляем сообщение с оффером
         await bot.delete_business_messages(
             business_connection_id=bcid,
             message_ids=[cb.message.message_id]

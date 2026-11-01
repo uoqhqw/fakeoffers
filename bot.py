@@ -5,7 +5,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # Настройки
-TOKEN = "YOUR_BOT_TOKEN"
+TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
 RECIPIENT = "@recipient_username"  # Юзернейм, куда передается НФТ
 
 logging.basicConfig(level=logging.INFO)

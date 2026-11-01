@@ -203,11 +203,13 @@ async def accept_offer(cb: CallbackQuery):
     text = build_accept_text(gift_name, gift_num, currency_name, lang)
     bcid = cb.message.business_connection_id
     chat_id = cb.message.chat.id
+    message_id = cb.message.message_id
 
     try:
+        # Принудительно обновляем текст и клавиатуру в чате у мамонта
         await bot.edit_message_text(
             chat_id=chat_id,
-            message_id=cb.message.message_id,
+            message_id=message_id,
             text=text,
             parse_mode=ParseMode.HTML,
             reply_markup=make_accept_keyboard(lang),
@@ -219,9 +221,10 @@ async def accept_offer(cb: CallbackQuery):
         error_str = str(e)
         if "message is not modified" in error_str or "query is too old" in error_str:
             try:
+                # Если у клиента застрял кэш кнопок, принудительно гасим их
                 await bot.edit_message_reply_markup(
                     chat_id=chat_id,
-                    message_id=cb.message.message_id,
+                    message_id=message_id,
                     reply_markup=None,
                     business_connection_id=bcid
                 )
@@ -231,6 +234,7 @@ async def accept_offer(cb: CallbackQuery):
         else:
             logging.error(f"Accept error: {error_str}")
             await cb.answer("✅ Предложение принято!", show_alert=True)
+            
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):

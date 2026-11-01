@@ -210,8 +210,25 @@ async def accept_offer(cb: CallbackQuery):
 
     await cb.answer("✅ Успешно принято!", show_alert=True)
 
+    success = False
+
+    # Способ 1: Пытаемся обновить через стандартный метод редактирования
     try:
-        if bcid:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=make_accept_keyboard(lang),
+            link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
+        )
+        success = True
+    except Exception:
+        pass
+
+    # Способ 2: Если первый не прошел, пробуем через Business Connection ID
+    if not success and bcid:
+        try:
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
@@ -221,17 +238,22 @@ async def accept_offer(cb: CallbackQuery):
                 business_connection_id=bcid,
                 link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
-        else:
-            await bot.edit_message_text(
+            success = True
+        except Exception as e:
+            error_str = str(e)
+            if "message is not modified" in error_str:
+                success = True
+
+    if not success:
+        try:
+            await bot.edit_message_reply_markup(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=make_accept_keyboard(lang),
-                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
+                reply_markup=None,
+                business_connection_id=bcid
             )
-    except Exception as e:
-        logging.error(f"Accept edit error: {e}")
+        except Exception:
+            pass
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):

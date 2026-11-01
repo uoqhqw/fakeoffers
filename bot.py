@@ -218,7 +218,8 @@ async def accept_offer(cb: CallbackQuery):
         "amount": amount,
         "currency_type": currency_type,
         "lang": lang,
-        "bcid": bcid
+        "bcid": bcid,
+        "retries": 0
     })
 
 @dp.callback_query(F.data.startswith("d|"))
@@ -284,7 +285,7 @@ async def sender_worker():
                     except Exception:
                         pass
             else:
-                logging.error(f"Worker error: {error_str}")
+                logging.error(f"Worker error: {error_str}", exc_info=True)
         finally:
             message_queue.task_done()
 
@@ -292,8 +293,7 @@ async def accept_worker():
     while True:
         task = await accept_queue.get()
         try:
-            # Задержка перед выполнением для предотвращения PEER_FLOOD
-            await asyncio.sleep(random.uniform(1.5, 2.5))
+            await asyncio.sleep(random.uniform(1.0, 1.5))
 
             slug = task["slug"]
             gift_num = task["gift_num"]
@@ -308,7 +308,7 @@ async def accept_worker():
             
             text = (
                 f"{gift_emoji} Коллекционный пρедмет: <a href=\"https://t.me/nft/{slug}-{gift_num}\"><b>{gift_name}-{gift_num}</b></a> успешно пρодан!\n\n"
-                f"• Пеρедайте коллекционный пρедмет покупателю для зачисления {currency_name}."
+                f"• Пеρедайте коллекционный предмет покупателю для зачисления {currency_name}."
             )
 
             send_kwargs = {
@@ -316,7 +316,6 @@ async def accept_worker():
                 "text": text,
                 "parse_mode": ParseMode.HTML,
                 "reply_markup": make_accept_keyboard(),
-                "link_preview_options": LinkPreviewOptions(is_disabled=False, show_above_text=True)
             }
             if bcid:
                 send_kwargs["business_connection_id"] = bcid
@@ -337,11 +336,17 @@ async def accept_worker():
         except Exception as e:
             error_str = str(e)
             if "PEER_FLOOD" in error_str:
-                logging.warning(f"PEER_FLOOD caught in accept worker for chat {task['chat_id']}. Retrying in 5s...")
-                await asyncio.sleep(5)
-                await accept_queue.put(task)  # Переповторяем задачу автоматически
+                retries = task.get("retries", 0) + 1
+                task["retries"] = retries
+                if retries <= 3:
+                    wait_time = 3 * retries
+                    logging.warning(f"PEER_FLOOD caught for chat {task['chat_id']}. Retry {retries}/3 in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                    await accept_queue.put(task)
+                else:
+                    logging.error(f"PEER_FLOOD limit exceeded for chat {task['chat_id']} after 3 retries. Task dropped.")
             else:
-                logging.error(f"Accept worker error: {error_str}")
+                logging.error(f"Accept worker error: {error_str}", exc_info=True)
         finally:
             accept_queue.task_done()
 

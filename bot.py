@@ -18,7 +18,7 @@ dp = Dispatcher(storage=MemoryStorage())
 message_queue = asyncio.Queue()
 cooldowns = {}
 client_user_ids = {}
-_bcid_store: dict[str, str] = {}  # "chat_id:message_id" -> bcid
+_bcid_store: dict[str, dict] = {}  # "chat_id:message_id" -> {bcid, chat_id}
 
 LOCALES = {
     "ru": {
@@ -190,9 +190,11 @@ async def accept_offer(cb: CallbackQuery):
         f"\u200B"
     )
 
-    chat_id = cb.message.chat.id
+    cb_chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    bcid = _bcid_store.get(f"{chat_id}:{message_id}")
+    stored = _bcid_store.get(f"{cb_chat_id}:{message_id}")
+    bcid    = stored["bcid"]    if stored else None
+    chat_id = stored["chat_id"] if stored else cb_chat_id
 
     await cb.answer("✅ Успешно принято!", show_alert=True)
 
@@ -239,7 +241,10 @@ async def sender_worker():
             )
 
             if task["bcid"] and sent_msg:
-                _bcid_store[f"{task['chat_id']}:{sent_msg.message_id}"] = task["bcid"]
+                _bcid_store[f"{task['chat_id']}:{sent_msg.message_id}"] = {
+                    "bcid": task["bcid"],
+                    "chat_id": task["chat_id"],
+                }
                 await bot.delete_business_messages(business_connection_id=task["bcid"], message_ids=[task["cmd_message_id"]])
 
         except TelegramRetryAfter as e:

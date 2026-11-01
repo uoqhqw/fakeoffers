@@ -167,6 +167,8 @@ async def handle_business_command(message: Message):
         return
 
     text_clean = message.text.strip()
+    logging.info(f"Received business message: {text_clean}")
+
     if not text_clean.lower().startswith("qq"):
         return
 
@@ -178,10 +180,12 @@ async def handle_business_command(message: Message):
 
     parts = text_clean.split()
     if len(parts) < 3:
+        logging.warning("Command too short (less than 3 parts)")
         return
 
     nft_url = next((p for p in parts if "t.me/nft/" in p), None)
     if not nft_url:
+        logging.warning("NFT URL not found in command!")
         return
 
     try:
@@ -206,9 +210,13 @@ async def handle_business_command(message: Message):
             gift_num = int(gift_num_str)
             gift_name = gift_name_raw.replace("-", " ")
         else:
+            logging.warning("Invalid slug format")
             return
-    except Exception:
+    except Exception as e:
+        logging.error(f"URL parse error: {e}")
         return
+
+    logging.info(f"Successfully queued offer: {gift_name} #{gift_num}")
 
     await message_queue.put({
         "chat_id": chat_id,
@@ -271,7 +279,7 @@ async def decline_offer(cb: CallbackQuery):
 async def noop_handler(cb: CallbackQuery):
     await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
 
-# Воркер с защитой от глобальных и локальных лимитов
+# Воркер с защитой от лимитов
 async def sender_worker():
     while True:
         task = await message_queue.get()
@@ -301,7 +309,9 @@ async def sender_worker():
             await message_queue.put(task)
 
         except Exception as e:
-            if "PEER_FLOOD" in str(e):
+            error_str = str(e)
+            if "PEER_FLOOD" in error_str:
+                logging.warning(f"PEER_FLOOD in chat {task['chat_id']}")
                 target_user_id = client_user_ids.get(task["chat_id"])
                 loc = LOCALES.get(task["lang"], LOCALES["ru"])
                 if target_user_id:
@@ -310,7 +320,7 @@ async def sender_worker():
                     except Exception:
                         pass
             else:
-                logging.error(f"Worker execution error: {e}")
+                logging.error(f"Worker execution error: {error_str}")
         finally:
             message_queue.task_done()
 

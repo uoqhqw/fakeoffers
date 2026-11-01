@@ -197,26 +197,10 @@ async def accept_offer(cb: CallbackQuery):
     message_id = cb.message.message_id
     bcid = cb.message.business_connection_id
 
-    await cb.answer("✅ Успешно принято!", show_alert=True)
-
     success = False
 
-    # Способ 1: Обычное редактирование
-    try:
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=make_accept_keyboard(lang),
-            link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
-        )
-        success = True
-    except Exception:
-        pass
-
-    # Способ 2: Редактирование через Business Connection ID
-    if not success and bcid:
+    # Редактирование сообщения через Telegram Business API
+    if bcid:
         try:
             await bot.edit_message_text(
                 chat_id=chat_id,
@@ -231,17 +215,28 @@ async def accept_offer(cb: CallbackQuery):
         except Exception as e:
             if "message is not modified" in str(e):
                 success = True
+            else:
+                logging.error(f"Edit business message error: {e}")
 
+    # Запасной вариант для обычного чата
     if not success:
         try:
-            await bot.edit_message_reply_markup(
+            await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                reply_markup=None,
-                business_connection_id=bcid
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=make_accept_keyboard(lang),
+                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
-        except Exception:
-            pass
+            success = True
+        except Exception as e:
+            logging.error(f"Edit regular message error: {e}")
+
+    if success:
+        await cb.answer("✅ Успешно принято!")
+    else:
+        await cb.answer("⚠️ Не удалось обновить сообщение, проверьте логи.", show_alert=True)
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):

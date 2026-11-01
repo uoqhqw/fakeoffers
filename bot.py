@@ -19,7 +19,6 @@ dp = Dispatcher(storage=MemoryStorage())
 message_queue = asyncio.Queue()
 cooldowns = {}
 client_user_ids = {}
-message_bcid = {}  # Словарь для надежного хранения business_connection_id
 
 LOCALES = {
     "ru": {
@@ -204,35 +203,42 @@ async def accept_offer(cb: CallbackQuery):
     
     currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
     text = build_accept_text(gift_name, gift_num, currency_name, lang)
-    
+    bcid = cb.message.business_connection_id
     chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    
-    bcid = message_bcid.get((chat_id, message_id)) or cb.message.business_connection_id
 
     await cb.answer("✅ Успешно принято!", show_alert=True)
 
     try:
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=make_accept_keyboard(lang),
-            business_connection_id=bcid,
-            link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
-        )
+        # Жестко удаляем старое сообщение с карточкой у мамонта
+        if bcid:
+            await bot.delete_business_messages(business_connection_id=bcid, message_ids=[message_id])
+        else:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
     except Exception as e:
-        logging.error(f"Accept error: {e}")
-        try:
-            await bot.edit_message_reply_markup(
+        logging.error(f"Delete offer msg error: {e}")
+
+    try:
+        # Присылаем новое сообщение с текстом успеха и кнопкой перевода
+        if bcid:
+            await bot.send_message(
                 chat_id=chat_id,
-                message_id=message_id,
-                reply_markup=None,
-                business_connection_id=bcid
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=make_accept_keyboard(lang),
+                business_connection_id=bcid,
+                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
-        except Exception:
-            pass
+        else:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=make_accept_keyboard(lang),
+                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
+            )
+    except Exception as e:
+        logging.error(f"Send success msg error: {e}")
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
@@ -265,7 +271,6 @@ async def sender_worker():
             )
 
             if task["bcid"] and sent_msg:
-                message_bcid[(task["chat_id"], sent_msg.message_id)] = task["bcid"]
                 await bot.delete_business_messages(business_connection_id=task["bcid"], message_ids=[task["cmd_message_id"]])
 
         except TelegramRetryAfter as e:
@@ -296,4 +301,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    

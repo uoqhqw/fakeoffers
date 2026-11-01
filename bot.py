@@ -186,7 +186,6 @@ async def handle_business_command(message: Message):
 async def accept_offer(cb: CallbackQuery):
     parts = cb.data.split("|")
     if len(parts) < 6:
-        await cb.answer("Ошибка данных", show_alert=True)
         return
 
     _, slug, gift_num_str, amount, currency_type, lang = parts
@@ -207,27 +206,26 @@ async def accept_offer(cb: CallbackQuery):
     key = f"{chat_id}:{message_id}"
     bcid = message_bcid.get(key) or cb.message.business_connection_id
 
-    await cb.answer("✅ Успешно пρинято!")
-
     try:
-        edit_kwargs = {
+        send_kwargs = {
             "chat_id": chat_id,
-            "message_id": message_id,
             "text": text,
             "parse_mode": ParseMode.HTML,
             "reply_markup": make_accept_keyboard(),
             "link_preview_options": LinkPreviewOptions(is_disabled=False, show_above_text=True)
         }
         if bcid:
-            edit_kwargs["business_connection_id"] = bcid
+            send_kwargs["business_connection_id"] = bcid
 
-        await bot.edit_message_text(**edit_kwargs)
-    except Exception as e:
-        error_str = str(e)
-        if "message is not modified" in error_str:
-            pass
+        await bot.send_message(**send_kwargs)
+
+        if bcid:
+            await bot.delete_business_messages(business_connection_id=bcid, message_ids=[message_id])
         else:
-            logging.error(f"Edit message error: {error_str}")
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+
+    except Exception as e:
+        logging.error(f"Accept offer error: {e}")
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
@@ -243,11 +241,10 @@ async def decline_offer(cb: CallbackQuery):
             await bot.delete_message(chat_id=chat_id, message_id=message_id)
     except Exception:
         pass
-    await cb.answer("Предложение отклонено")
 
 @dp.callback_query(F.data == "noop")
 async def noop_handler(cb: CallbackQuery):
-    await cb.answer("Сначала выполните пеρедачу НФТ по кнопке выше!", show_alert=True)
+    pass
 
 async def sender_worker():
     while True:

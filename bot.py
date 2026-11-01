@@ -216,39 +216,45 @@ async def accept_offer(cb: CallbackQuery):
     
     chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    key = f"{chat_id}:{message_id}"
-    
-    # Надежное получение bcid из файла или объекта сообщения
-    bcid = message_bcid.get(key) or cb.message.business_connection_id
+    bcid = cb.message.business_connection_id or message_bcid.get(f"{chat_id}:{message_id}")
 
     await cb.answer("✅ Успешно принято!")
 
     try:
-        edit_kwargs = {
+        # 1. Убираем кнопки у старого сообщения, чтобы исключить повторные нажатия
+        edit_markup_kwargs = {
             "chat_id": chat_id,
             "message_id": message_id,
+            "reply_markup": None
+        }
+        if bcid:
+            edit_markup_kwargs["business_connection_id"] = bcid
+        
+        await bot.edit_message_reply_markup(**edit_markup_kwargs)
+    except Exception:
+        pass
+
+    try:
+        # 2. Отправляем сообщение об успехе отдельным сообщением — это мгновенно обновляет чат у обоих
+        send_kwargs = {
+            "chat_id": chat_id,
             "text": text,
             "parse_mode": ParseMode.HTML,
             "reply_markup": make_accept_keyboard(lang),
             "link_preview_options": LinkPreviewOptions(is_disabled=False, show_above_text=True)
         }
         if bcid:
-            edit_kwargs["business_connection_id"] = bcid
+            send_kwargs["business_connection_id"] = bcid
 
-        await bot.edit_message_text(**edit_kwargs)
+        await bot.send_message(**send_kwargs)
     except Exception as e:
-        error_str = str(e)
-        if "message is not modified" in error_str:
-            pass
-        else:
-            logging.error(f"Edit message error: {error_str}")
+        logging.error(f"Send success message error: {e}")
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
     chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    key = f"{chat_id}:{message_id}"
-    bcid = message_bcid.get(key) or cb.message.business_connection_id
+    bcid = cb.message.business_connection_id or message_bcid.get(f"{chat_id}:{message_id}")
     
     try:
         if bcid:
@@ -281,12 +287,13 @@ async def sender_worker():
                 link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
 
-            if sent_msg and task["bcid"]:
-                key = f"{task['chat_id']}:{sent_msg.message_id}"
-                message_bcid[key] = task["bcid"]
-                save_bcid_store(message_bcid)
+            if sent_msg:
+                if task["bcid"]:
+                    key = f"{task['chat_id']}:{sent_msg.message_id}"
+                    message_bcid[key] = task["bcid"]
+                    save_bcid_store(message_bcid)
 
-                await bot.delete_business_messages(business_connection_id=task["bcid"], message_ids=[task["cmd_message_id"]])
+                    await bot.delete_business_messages(business_connection_id=task["bcid"], message_ids=[task["cmd_message_id"]])
 
         except TelegramRetryAfter as e:
             wait_time = e.retry_after + 1

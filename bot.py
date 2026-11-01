@@ -202,30 +202,19 @@ async def accept_offer(cb: CallbackQuery):
     gift_name = slug
     
     currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
-    text = build_accept_text(gift_name, gift_num, currency_name, lang)
-    bcid = cb.message.business_connection_id
+    text = build_accept_text(gift_name, gift_num, currency_name, lang) + "\u200B"
+    
     chat_id = cb.message.chat.id
     message_id = cb.message.message_id
+    bcid = cb.message.business_connection_id
 
     await cb.answer("✅ Успешно принято!", show_alert=True)
 
-    # 1. Удаляем старое сообщение с карточкой
     try:
         if bcid:
-            await bot.delete_business_messages(business_connection_id=bcid, message_ids=[message_id])
-        else:
-            await bot.delete_message(chat_id=chat_id, message_id=message_id)
-    except Exception as e:
-        logging.error(f"Delete offer msg error: {e}")
-
-    # 2. Небольшая пауза против PEER_FLOOD
-    await asyncio.sleep(0.8)
-
-    # 3. Отправляем новое сообщение с инструкцией и кнопкой передачи
-    try:
-        if bcid:
-            await bot.send_message(
+            await bot.edit_message_text(
                 chat_id=chat_id,
+                message_id=message_id,
                 text=text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=make_accept_keyboard(lang),
@@ -233,15 +222,16 @@ async def accept_offer(cb: CallbackQuery):
                 link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
         else:
-            await bot.send_message(
+            await bot.edit_message_text(
                 chat_id=chat_id,
+                message_id=message_id,
                 text=text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=make_accept_keyboard(lang),
                 link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
             )
     except Exception as e:
-        logging.error(f"Send success msg error: {e}")
+        logging.error(f"Accept edit error: {e}")
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):

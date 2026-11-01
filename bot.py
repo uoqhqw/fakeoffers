@@ -82,7 +82,8 @@ def build_offer_text(gift_name, gift_num, amount, currency_type, lang):
 
 def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
-    cb_data = f"a|{gift_name}|{gift_num}|{amount}|{currency_type}|{lang}"
+    slug = gift_name.replace(" ", "")
+    cb_data = f"a|{slug}|{gift_num}|{amount}|{currency_type}|{lang}"
     decline_data = f"d|{gift_num}"
 
     return InlineKeyboardMarkup(
@@ -196,8 +197,10 @@ async def accept_offer(cb: CallbackQuery):
         await cb.answer("Ошибка данных", show_alert=True)
         return
 
-    _, gift_name, gift_num_str, amount, currency_type, lang = parts
+    _, slug, gift_num_str, amount, currency_type, lang = parts
     gift_num = int(gift_num_str)
+    
+    gift_name = slug
     
     currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
     text = build_accept_text(gift_name, gift_num, currency_name, lang)
@@ -206,7 +209,6 @@ async def accept_offer(cb: CallbackQuery):
     message_id = cb.message.message_id
 
     try:
-        # Принудительно обновляем текст и клавиатуру в чате у мамонта
         await bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
@@ -221,7 +223,6 @@ async def accept_offer(cb: CallbackQuery):
         error_str = str(e)
         if "message is not modified" in error_str or "query is too old" in error_str:
             try:
-                # Если у клиента застрял кэш кнопок, принудительно гасим их
                 await bot.edit_message_reply_markup(
                     chat_id=chat_id,
                     message_id=message_id,
@@ -234,7 +235,6 @@ async def accept_offer(cb: CallbackQuery):
         else:
             logging.error(f"Accept error: {error_str}")
             await cb.answer("✅ Предложение принято!", show_alert=True)
-            
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):

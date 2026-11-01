@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# Очередь для отправки сообщений с защитой от флуда
+# Очередь для отправки сообщений
 message_queue = asyncio.Queue()
 
 # Текст оффера (с превью карточки сверху для любого NFT)
@@ -70,7 +70,7 @@ def unpack_offer(cb_data: str):
         pass
     return None
 
-# Быстрая команда прямо в чате: qq [ссылка] [сумма] [покупатель(необяз)]
+# Команда qq: ты пишешь ее от своего лица, бот ее видит, удаляет и пришлет карточку ОТ СЕБЯ
 @dp.message(F.text & F.text.startswith("qq"))
 async def cmd_quick_offer(message: Message):
     parts = message.text.split()
@@ -106,7 +106,7 @@ async def cmd_quick_offer(message: Message):
         await message.reply(f"❌ Ошибка разбора ссылки NFT: {e}")
         return
 
-    # Кладем в очередь отправки
+    # Кладем в очередь (передаем chat_id, чтобы бот написал в этот чат от своего имени)
     await message_queue.put((
         message.chat.id,
         sender_username,
@@ -114,19 +114,20 @@ async def cmd_quick_offer(message: Message):
         "XTR",
         gift_name,
         gift_num,
-        "ru",
-        message.business_connection_id
+        "ru"
     ))
 
-    # Удаляем сообщение с командой qq
+    # Удаляем твое сообщение с командой qq
     try:
         if message.business_connection_id:
             await bot.delete_business_messages(
                 business_connection_id=message.business_connection_id,
                 message_ids=[message.message_id]
             )
-    except Exception:
-        pass
+        else:
+            await message.delete()
+    except Exception as e:
+        logging.error(f"Failed to delete command: {e}")
 
 @dp.callback_query(F.data.startswith("a|"))
 async def accept_offer(cb: CallbackQuery):
@@ -137,27 +138,17 @@ async def accept_offer(cb: CallbackQuery):
 
     sender_username, amount, currency, gift_name, gift_num, lang = data
     text = build_accept_text(gift_name, gift_num)
-    bcid = cb.message.business_connection_id
-    chat_id = cb.message.chat.id
 
     try:
-        # 1. Удаляем сообщение с оффером
-        await bot.delete_business_messages(
-            business_connection_id=bcid,
-            message_ids=[cb.message.message_id]
-        )
-        
-        # 2. Присылаем новое сообщение с инструкцией и кнопкой передачи
-        await bot.send_message(
-            chat_id=chat_id,
+        # Бот редактирует свое собственное сообщение на карточку с инструкцией
+        await cb.message.edit_text(
             text=text,
             reply_markup=make_accept_keyboard(),
-            business_connection_id=bcid,
             disable_web_page_preview=False,
         )
     except Exception as e:
-        logging.error(f"accept replacement error: {e}")
-        await cb.answer("Не удалось обработать", show_alert=True)
+        logging.error(f"accept error: {e}")
+        await cb.answer("Не удалось обновить", show_alert=True)
         return
         
     await cb.answer()
@@ -165,10 +156,7 @@ async def accept_offer(cb: CallbackQuery):
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
     try:
-        await bot.delete_business_messages(
-            business_connection_id=cb.message.business_connection_id,
-            message_ids=[cb.message.message_id]
-        )
+        await cb.message.delete()
     except Exception as e:
         logging.error(f"decline delete error: {e}")
     await cb.answer("Предложение отклонено")
@@ -177,20 +165,20 @@ async def decline_offer(cb: CallbackQuery):
 async def noop_handler(cb: CallbackQuery):
     await cb.answer("Выполните передачу по кнопке выше", show_alert=False)
 
-# Фоновый воркер для безопасной отправки офферов
+# Фоновый воркер: отправляет сообщение ОТ ИМЕНИ БОТА (без business_connection_id)
 async def sender_worker():
     while True:
         task = await message_queue.get()
-        chat_id, sender_username, amount, currency, gift_name, gift_num, lang, bcid = task
+        chat_id, sender_username, amount, currency, gift_name, gift_num, lang = task
         try:
             text = build_offer_text(sender_username, amount, gift_name, gift_num)
             keyboard = make_offer_keyboard(sender_username, amount, currency, gift_name, gift_num, lang)
             
+            # Шлем обычным методом, чтобы сообщение шло от имени самого бота в чат
             await bot.send_message(
                 chat_id=chat_id,
                 text=text,
                 reply_markup=keyboard,
-                business_connection_id=bcid,
                 disable_web_page_preview=False,
             )
         except Exception as e:

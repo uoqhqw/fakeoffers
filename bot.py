@@ -18,6 +18,7 @@ dp = Dispatcher(storage=MemoryStorage())
 message_queue = asyncio.Queue()
 cooldowns = {}
 client_user_ids = {}
+_bcid_store: dict[str, str] = {}  # "chat_id:message_id" -> bcid
 
 LOCALES = {
     "ru": {
@@ -191,11 +192,9 @@ async def accept_offer(cb: CallbackQuery):
 
     chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    bcid = cb.message.business_connection_id
+    bcid = _bcid_store.get(f"{chat_id}:{message_id}")
 
     await cb.answer("✅ Успешно принято!", show_alert=True)
-
-    success = False
 
     try:
         await bot.edit_message_text(
@@ -204,38 +203,10 @@ async def accept_offer(cb: CallbackQuery):
             text=text,
             parse_mode=ParseMode.HTML,
             reply_markup=make_accept_keyboard(lang),
-            link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
+            business_connection_id=bcid,
         )
-        success = True
-    except Exception:
-        pass
-
-    if not success and bcid:
-        try:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=make_accept_keyboard(lang),
-                business_connection_id=bcid,
-                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
-            )
-            success = True
-        except Exception as e:
-            if "message is not modified" in str(e):
-                success = True
-
-    if not success:
-        try:
-            await bot.edit_message_reply_markup(
-                chat_id=chat_id,
-                message_id=message_id,
-                reply_markup=None,
-                business_connection_id=bcid
-            )
-        except Exception:
-            pass
+    except Exception as e:
+        logging.error(f"accept edit error: {e}")
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
@@ -268,6 +239,7 @@ async def sender_worker():
             )
 
             if task["bcid"] and sent_msg:
+                _bcid_store[f"{task['chat_id']}:{sent_msg.message_id}"] = task["bcid"]
                 await bot.delete_business_messages(business_connection_id=task["bcid"], message_ids=[task["cmd_message_id"]])
 
         except TelegramRetryAfter as e:

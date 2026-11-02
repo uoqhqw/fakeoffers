@@ -206,16 +206,23 @@ async def accept_offer(cb: CallbackQuery):
     await cb.answer("✅ Успешно принято!", show_alert=True)
 
     try:
-        await bot.edit_message_text(
+        await bot.delete_business_messages(
+            business_connection_id=bcid,
+            message_ids=[message_id],
+        )
+    except Exception as e:
+        logging.error(f"delete offer error: {e}")
+
+    try:
+        await bot.send_message(
             chat_id=chat_id,
-            message_id=message_id,
             text=text,
             parse_mode=ParseMode.HTML,
             reply_markup=make_accept_keyboard(lang),
             business_connection_id=bcid,
         )
     except Exception as e:
-        logging.error(f"accept edit error: {e}")
+        logging.error(f"accept send error: {e}")
 
 
 @dp.callback_query(F.data.startswith("d|"))

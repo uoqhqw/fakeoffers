@@ -172,6 +172,9 @@ async def handle_business_command(message: Message):
 
 @dp.callback_query(F.data.startswith("a|"))
 async def accept_offer(cb: CallbackQuery):
+    # Обязательно убирает крутилку загрузки с кнопки
+    await cb.answer()
+
     parts = cb.data.split("|")
     if len(parts) < 6:
         return
@@ -191,7 +194,6 @@ async def accept_offer(cb: CallbackQuery):
     cb_chat_id = cb.message.chat.id
     message_id = cb.message.message_id
     
-    # Надежный поиск по хранилищу (даже если chat_id в callback отличается)
     stored = _bcid_store.get(f"{cb_chat_id}:{message_id}")
     if not stored:
         for key, data in _bcid_store.items():
@@ -224,6 +226,8 @@ async def accept_offer(cb: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
+    await cb.answer()
+    
     cb_chat_id = cb.message.chat.id
     message_id = cb.message.message_id
     
@@ -248,7 +252,7 @@ async def decline_offer(cb: CallbackQuery):
 
 @dp.callback_query(F.data == "noop")
 async def noop_handler(cb: CallbackQuery):
-    pass
+    await cb.answer()
 
 
 async def sender_worker():

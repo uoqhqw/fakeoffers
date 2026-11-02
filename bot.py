@@ -210,7 +210,14 @@ async def accept_offer(cb: CallbackQuery):
 
     cb_chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    stored    = _bcid_store.get(f"{cb_chat_id}:{message_id}")
+
+    # ищем по message_id по всем записям — chat_id в колбэке может не совпадать с task chat_id
+    stored = None
+    for key, val in _bcid_store.items():
+        if key.endswith(f":{message_id}"):
+            stored = val
+            break
+
     bcid      = stored["bcid"]      if stored else None
     chat_id   = stored["chat_id"]   if stored else cb_chat_id
     recipient = stored["recipient"] if stored else "recipient_username"

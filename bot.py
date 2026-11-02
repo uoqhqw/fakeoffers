@@ -174,7 +174,6 @@ async def handle_business_command(message: Message):
 async def accept_offer(cb: CallbackQuery):
     parts = cb.data.split("|")
     if len(parts) < 6:
-        await cb.answer("Ошибка данных", show_alert=True)
         return
 
     _, slug, gift_num_str, amount, currency_type, lang = parts
@@ -191,15 +190,19 @@ async def accept_offer(cb: CallbackQuery):
 
     cb_chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    stored    = _bcid_store.get(f"{cb_chat_id}:{message_id}")
     
-    # Исправлено: если в памяти нет сохраненного bcid, берем его из самого объекта callback_query
-    bcid      = stored["bcid"]      if stored else cb.message.business_connection_id
+    # Надежный поиск по хранилищу (даже если chat_id в callback отличается)
+    stored = _bcid_store.get(f"{cb_chat_id}:{message_id}")
+    if not stored:
+        for key, data in _bcid_store.items():
+            if key.endswith(f":{message_id}"):
+                stored = data
+                break
+
+    bcid      = stored["bcid"]      if stored else getattr(cb.message, "business_connection_id", None)
     chat_id   = stored["chat_id"]   if stored else cb_chat_id
     recipient = stored["recipient"] if stored else "recipient_username"
     lang      = stored.get("lang", lang) if stored else lang
-
-    await cb.answer("✅ Успешно принято!", show_alert=True)
 
     try:
         await bot.edit_message_text(
@@ -223,9 +226,17 @@ async def accept_offer(cb: CallbackQuery):
 async def decline_offer(cb: CallbackQuery):
     cb_chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    stored     = _bcid_store.get(f"{cb_chat_id}:{message_id}")
-    bcid       = stored["bcid"]    if stored else cb.message.business_connection_id
+    
+    stored = _bcid_store.get(f"{cb_chat_id}:{message_id}")
+    if not stored:
+        for key, data in _bcid_store.items():
+            if key.endswith(f":{message_id}"):
+                stored = data
+                break
+
+    bcid       = stored["bcid"]    if stored else getattr(cb.message, "business_connection_id", None)
     chat_id    = stored["chat_id"] if stored else cb_chat_id
+    
     try:
         await bot.delete_business_messages(
             business_connection_id=bcid,
@@ -233,12 +244,11 @@ async def decline_offer(cb: CallbackQuery):
         )
     except Exception:
         pass
-    await cb.answer("Предложение отклонено")
 
 
 @dp.callback_query(F.data == "noop")
 async def noop_handler(cb: CallbackQuery):
-    await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
+    pass
 
 
 async def sender_worker():

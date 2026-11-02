@@ -15,9 +15,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 message_queue = asyncio.Queue()
-cooldowns = {}
 client_user_ids = {}
-_bcid_store: dict[str, dict] = {}
 
 LOCALES = {
     "ru": {
@@ -70,12 +68,10 @@ LOCALES = {
 def build_offer_text(gift_name, gift_num, amount, currency_type, lang):
     slug = gift_name.replace(" ", "")
     loc = LOCALES.get(lang, LOCALES["ru"])
-
     if currency_type.lower() == "gram":
         currency_emoji = '<tg-emoji emoji-id="5298988357538328017">💎</tg-emoji>'
     else:
         currency_emoji = '<tg-emoji emoji-id="5920433463428650761">⭐️</tg-emoji>'
-
     return loc["offer_text"].format(
         amount=amount,
         currency_emoji=currency_emoji,
@@ -90,7 +86,6 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
     slug = gift_name.replace(" ", "")
     cb_data = f"a|{slug}|{gift_num}|{amount}|{currency_type}|{lang}"
     decline_data = f"d|{gift_num}"
-
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -104,7 +99,6 @@ def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
 def make_accept_keyboard(lang):
     loc = LOCALES.get(lang, LOCALES["ru"])
     recipient = RECIPIENT.lstrip("@")
-
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=loc['btn_transfer'], url=f"tg://send_gift?to={recipient}", icon_custom_emoji_id="5875180111744995604")],
@@ -205,11 +199,9 @@ async def accept_offer(cb: CallbackQuery):
         currency_name=currency_name,
     )
 
-    cb_chat_id = cb.message.chat.id
+    bcid = cb.message.business_connection_id
+    chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    stored = _bcid_store.get(f"{cb_chat_id}:{message_id}")
-    bcid    = stored["bcid"]    if stored else None
-    chat_id = stored["chat_id"] if stored else cb_chat_id
 
     await cb.answer("✅ Успешно принято!", show_alert=True)
 
@@ -268,10 +260,6 @@ async def sender_worker():
             )
 
             if task["bcid"] and sent_msg:
-                _bcid_store[f"{task['chat_id']}:{sent_msg.message_id}"] = {
-                    "bcid": task["bcid"],
-                    "chat_id": task["chat_id"],
-                }
                 await bot.delete_business_messages(
                     business_connection_id=task["bcid"],
                     message_ids=[task["cmd_message_id"]]

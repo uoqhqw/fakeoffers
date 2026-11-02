@@ -16,6 +16,7 @@ dp = Dispatcher(storage=MemoryStorage())
 
 message_queue = asyncio.Queue()
 client_user_ids = {}
+_accepted: set[int] = set()
 
 LOCALES = {
     "ru": {
@@ -137,10 +138,8 @@ async def handle_business_command(message: Message):
 
     if "gram" in text_lower:
         currency_type = "gram"
-        currency_name = "Gram"
     else:
         currency_type = "stars"
-        currency_name = "Stars"
 
     amount = 1000
     for p in parts:
@@ -173,7 +172,6 @@ async def handle_business_command(message: Message):
         "gift_num": gift_num,
         "amount": amount,
         "currency_type": currency_type,
-        "currency_name": currency_name,
         "lang": lang,
         "bcid": message.business_connection_id,
         "cmd_message_id": message.message_id
@@ -182,6 +180,12 @@ async def handle_business_command(message: Message):
 
 @dp.callback_query(F.data.startswith("a|"))
 async def accept_offer(cb: CallbackQuery):
+    message_id = cb.message.message_id
+
+    if message_id in _accepted:
+        await cb.answer()
+        return
+
     parts = cb.data.split("|")
     if len(parts) < 6:
         await cb.answer("Ошибка данных", show_alert=True)
@@ -201,28 +205,24 @@ async def accept_offer(cb: CallbackQuery):
 
     bcid = cb.message.business_connection_id
     chat_id = cb.message.chat.id
-    message_id = cb.message.message_id
 
     await cb.answer("✅ Успешно принято!", show_alert=True)
 
     try:
-        await bot.delete_business_messages(
-            business_connection_id=bcid,
-            message_ids=[message_id],
-        )
-    except Exception as e:
-        logging.error(f"delete offer error: {e}")
-
-    try:
-        await bot.send_message(
+        await bot.edit_message_text(
             chat_id=chat_id,
+            message_id=message_id,
             text=text,
             parse_mode=ParseMode.HTML,
             reply_markup=make_accept_keyboard(lang),
             business_connection_id=bcid,
         )
+        _accepted.add(message_id)
     except Exception as e:
-        logging.error(f"accept send error: {e}")
+        if "message is not modified" not in str(e):
+            logging.error(f"accept edit error: {e}")
+        else:
+            _accepted.add(message_id)
 
 
 @dp.callback_query(F.data.startswith("d|"))

@@ -199,34 +199,33 @@ async def accept_offer(cb: CallbackQuery):
 
     await cb.answer("✅ Успешно принято!", show_alert=True)
 
+    amount, currency, gift_name, gift_num, lang = data
+    order_id = gen_order_id()
+    text = build_accept_text(amount, currency, gift_name, gift_num, order_id, lang)
+    
     try:
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=make_accept_keyboard(lang, recipient),
-            business_connection_id=bcid,
+            await cb.message.edit_text(
+                text=text,
+                reply_markup=make_accept_keyboard(gift_name, gift_num, lang),
+            )
+    except Exception as e:
+            logging.error(f"accept edit error: {e}")
+            await cb.answer("Не удалось обновить", show_alert=True)
+            return
+    await cb.answer()
+
+@dp.callback_query(F.data == "decline")
+async def decline(cb: CallbackQuery):
+    try:
+        await cb.message.edit_text(
+            text=f'{em(E_NO, "❌")} {T("ru", "declined")}',
+            reply_markup=None,
         )
     except Exception as e:
-        logging.error(f"accept edit error: {e}")
-
-
-@dp.callback_query(F.data.startswith("d|"))
-async def decline_offer(cb: CallbackQuery):
-    cb_chat_id = cb.message.chat.id
-    message_id = cb.message.message_id
-    stored     = _bcid_store.get(f"{cb_chat_id}:{message_id}")
-    bcid       = stored["bcid"]    if stored else cb.message.business_connection_id
-    chat_id    = stored["chat_id"] if stored else cb_chat_id
-    try:
-        await bot.delete_business_messages(
-            business_connection_id=bcid,
-            message_ids=[message_id],
-        )
-    except Exception:
-        pass
-    await cb.answer("Предложение отклонено")
+        logging.error(f"decline edit error: {e}")
+        await cb.answer("Не удалось обновить", show_alert=True)
+        return
+    await cb.answer()
 
 
 @dp.callback_query(F.data == "noop")

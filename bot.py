@@ -265,13 +265,13 @@ async def accept_offer(cb: CallbackQuery):
         await cb.answer("Оффер устарел или уже обработан.", show_alert=True)
         return
 
-    slug = html.escape(str(stored["slug"]))
-gift_num = str(stored["gift_num"])
-amount = html.escape(str(stored["amount"]))
+        slug = html.escape(str(stored["slug"]))
+        gift_num = str(stored["gift_num"])
+        amount = html.escape(str(stored["amount"]))
 
-if not gift_num.isascii() or not gift_num.isdigit():
-    await cb.answer("Некорректный номер подарка.", show_alert=True)
-    return
+        if not gift_num.isascii() or not gift_num.isdigit():
+            await cb.answer("Некорректный номер подарка.", show_alert=True)
+            return
 
 currency_type = str(stored.get("currency_type", "stars"))
 currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
@@ -291,25 +291,25 @@ new_text = (
     f"Требуется передача подарка для получения средств."
 )
 
-    await cb.answer("Предложение принято.", show_alert=True)
+await cb.answer("Предложение принято.", show_alert=True)
 
     # Изменяем существующую карточку
-    try:
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=new_text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=None,
-            business_connection_id=bcid
-        )
+try:
+    await bot.edit_message_text(
+        chat_id=chat_id,
+        message_id=message_id,
+        text=new_text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=None,
+        business_connection_id=bcid
+    )
 
-        await cb.answer("Предложение принято.", show_alert=True)
-        _store.pop(key, None)
+    await cb.answer("Предложение принято.", show_alert=True)
+    _store.pop(key, None)
 
-    except Exception as e:
-        logging.error(f"Edit accepted message error: {e}")
-        await cb.answer("Не удалось изменить сообщение.", show_alert=True)
+except Exception as e:
+    logging.error(f"Edit accepted message error: {e}")
+    await cb.answer("Не удалось изменить сообщение.", show_alert=True)
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):

@@ -9,10 +9,6 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.exceptions import TelegramRetryAfter
 
-print("TEST PRINT WORKS", flush=True)
-print("AIROGRAM VERSION:", __import__("aiogram").__version__)
-print("DELETE BUSINESS METHOD:", hasattr(Bot, "delete_business_messages"))
-
 TOKEN = os.getenv("BOT_TOKEN")
 
 if not TOKEN:

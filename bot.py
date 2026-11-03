@@ -282,7 +282,7 @@ bcid = cb.message.business_connection_id
 
 gift_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
 
-    new_text = (
+new_text = (
     f"{gift_emoji} <b>"
     f"<a href=\"https://t.me/nft/{slug}-{gift_num}\">"
     f"{slug}-{gift_num}</a></b>\n\n"

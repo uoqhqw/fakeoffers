@@ -274,91 +274,52 @@ async def accept_offer(cb: CallbackQuery):
 
     if not gift_num.isascii() or not gift_num.isdigit():
         await cb.answer(
-            "Некорректный номер подарка.", 
+            "Некорректный номер подарка.",
             show_alert=True
         )
         return
 
-currency_type = str(stored.get("currency_type", "stars"))
-currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
-
-chat_id = cb.message.chat.id
-message_id = cb.message.message_id
-bcid = cb.message.business_connection_id
-
-gift_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
-
-new_text = (
-    f"{gift_emoji} <b>"
-    f"<a href=\"https://t.me/nft/{slug}-{gift_num}\">"
-    f"{slug}-{gift_num}</a></b>\n\n"
-    f"<b>Предложение принято.</b>\n"
-    f"Сумма предложения: {amount} {currency_name}\n"
-    f"Требуется передача подарка для получения средств."
-)
-
-await cb.answer("Предложение принято.", show_alert=True)
-
-    # Изменяем существующую карточку
-try:
-    await bot.edit_message_text(
-        chat_id=chat_id,
-        message_id=message_id,
-        text=new_text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=None,
-        business_connection_id=bcid
+    currency_type = str(stored.get("currency_type", "stars"))
+    currency_name = (
+        "Gram" if currency_type.lower() == "gram" else "Stars"
     )
 
-    await cb.answer("Предложение принято.", show_alert=True)
-    _store.pop(key, None)
+    chat_id = cb.message.chat.id
+    message_id = cb.message.message_id
+    bcid = cb.message.business_connection_id
 
-except Exception as e:
-    logging.error(f"Edit accepted message error: {e}")
-    await cb.answer("Не удалось изменить сообщение.", show_alert=True)
+    gift_emoji = (
+        '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
+    )
 
-@dp.callback_query(F.data.startswith("d|"))
-async def decline_offer(cb: CallbackQuery):
-    parts = cb.data.split("|")
+    new_text = (
+        f"{gift_emoji} <b>"
+        f"<a href=\"https://t.me/nft/{slug}-{gift_num}\">"
+        f"{slug}-{gift_num}</a></b>\n\n"
+        f"<b>Предложение принято.</b>\n"
+        f"Сумма предложения: {amount} {currency_name}\n"
+        f"Передача подарка и оплата пока не подтверждены."
+    )
 
-    if len(parts) != 2:
-        await cb.answer("Ошибка данных.", show_alert=True)
-        return
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=new_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=None,
+            business_connection_id=bcid
+        )
 
-    _, key = parts
+        await cb.answer("Предложение принято.", show_alert=True)
+        _store.pop(key, None)
 
-    stored = _store.get(key)
-
-    if not stored:
+    except Exception as e:
+        logging.error(f"Edit accepted message error: {e}")
         await cb.answer(
-            "Оффер устарел или уже обработан.",
+            "Не удалось изменить сообщение.",
             show_alert=True
         )
-        return
-
-    chat_id = stored["chat_id"]
-    message_id = stored["message_id"]
-    bcid = stored.get("bcid")
-
-    await cb.answer("Предложение отклонено.")
-
-    # Удаляем сообщение с оффером
-    try:
-        if bcid:
-            await bot.delete_business_messages(
-                business_connection_id=bcid,
-                message_ids=[message_id]
-            )
-        else:
-            await bot.delete_message(
-                chat_id=chat_id,
-                message_id=message_id
-            )
-    except Exception as e:
-        logging.error(f"Delete declined offer error: {e}")
-
-    _store.pop(key, None)
-
 
 @dp.callback_query(F.data == "noop")
 async def noop_handler(cb: CallbackQuery):

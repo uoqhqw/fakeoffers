@@ -262,16 +262,22 @@ async def accept_offer(cb: CallbackQuery):
     stored = _store.get(key)
 
     if not stored:
-        await cb.answer("Оффер устарел или уже обработан.", show_alert=True)
+        await cb.answer(
+            "Оффер устарел или уже обработан.",
+            show_alert=True
+        )
         return
 
-        slug = html.escape(str(stored["slug"]))
-        gift_num = str(stored["gift_num"])
-        amount = html.escape(str(stored["amount"]))
+    slug = html.escape(str(stored["slug"]))
+    gift_num = str(stored["gift_num"])
+    amount = html.escape(str(stored["amount"]))
 
-        if not gift_num.isascii() or not gift_num.isdigit():
-            await cb.answer("Некорректный номер подарка.", show_alert=True)
-            return
+    if not gift_num.isascii() or not gift_num.isdigit():
+        await cb.answer(
+            "Некорректный номер подарка.", 
+            show_alert=True
+        )
+        return
 
 currency_type = str(stored.get("currency_type", "stars"))
 currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"

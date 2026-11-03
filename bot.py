@@ -252,7 +252,6 @@ async def handle_business_command(message: Message):
 
 @dp.callback_query(F.data.startswith("a|"))
 async def accept_offer(cb: CallbackQuery):
-    
     parts = cb.data.split("|")
 
     if len(parts) != 2:
@@ -268,12 +267,10 @@ async def accept_offer(cb: CallbackQuery):
 
     slug = html.escape(str(stored["slug"]))
     gift_num = str(stored["gift_num"])
-    amount = html.escape(str(stored["amount"]))
-    currency_type = stored["currency_type"]
 
     if not gift_num.isascii() or not gift_num.isdigit():
-        await cb.answer("Некорректный номер подарка.", show_alert=True)
-        return
+       await cb.answer("Некорректный номер подарка.", show_alert=True)
+       return  
 
     currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
 
@@ -283,43 +280,34 @@ async def accept_offer(cb: CallbackQuery):
 
     gift_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
 
-    text = (
-        f"{gift_emoji} <b><a href=\"https://t.me/nft/{slug}-{gift_num}\">{slug}-{gift_num}</a></b> ycпeшнo пpoдaн!\n\n"
-        f"<b>• Пepeдaйтe пoкyпaтeлю для зaчиcлeния {currency_name}.</b>"
-    )
+    new_text = (
+    f"{gift_emoji} <b>"
+    f"<a href=\"https://t.me/nft/{slug}-{gift_num}\">"
+    f"{slug}-{gift_num}</a></b>\n\n"
+    f"<b>Предложение принято.</b>\n"
+    f"Сумма предложения: {amount} {currency_name}\n"
+    f"Требуется передача подарка для получения средств."
+)
 
     await cb.answer("Предложение принято.", show_alert=True)
 
-    # Удаляем старое сообщение с кнопками
+    # Изменяем существующую карточку
     try:
-        if bcid:
-            await bot.delete_business_messages(
-                business_connection_id=bcid,
-                message_ids=[message_id]
-            )
-        else:
-            await bot.delete_message(
-                chat_id=chat_id,
-                message_id=message_id
-            )
-    except Exception as e:
-        logging.error(f"Delete old card error: {e}")
-
-    await asyncio.sleep(random.uniform(0.5, 1.0))
-
-    # Отправляем тестовое уведомление
-    try:
-        await bot.send_message(
+        await bot.edit_message_text(
             chat_id=chat_id,
-            text=text,
+            message_id=message_id,
+            text=new_text,
             parse_mode=ParseMode.HTML,
-            business_connection_id=bcid if bcid else None
+            reply_markup=None,
+            business_connection_id=bcid
         )
-    except Exception as e:
-        logging.error(f"Send accepted message error: {e}")
-    finally:
+
+        await cb.answer("Предложение принято.", show_alert=True)
         _store.pop(key, None)
 
+    except Exception as e:
+        logging.error(f"Edit accepted message error: {e}")
+        await cb.answer("Не удалось изменить сообщение.", show_alert=True)
 
 @dp.callback_query(F.data.startswith("d|"))
 async def decline_offer(cb: CallbackQuery):

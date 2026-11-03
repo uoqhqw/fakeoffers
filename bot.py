@@ -266,19 +266,21 @@ async def accept_offer(cb: CallbackQuery):
         return
 
     slug = html.escape(str(stored["slug"]))
-    gift_num = str(stored["gift_num"])
+gift_num = str(stored["gift_num"])
+amount = html.escape(str(stored["amount"]))
 
-    if not gift_num.isascii() or not gift_num.isdigit():
-       await cb.answer("Некорректный номер подарка.", show_alert=True)
-       return  
+if not gift_num.isascii() or not gift_num.isdigit():
+    await cb.answer("Некорректный номер подарка.", show_alert=True)
+    return
 
-    currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
+currency_type = str(stored.get("currency_type", "stars"))
+currency_name = "Gram" if currency_type.lower() == "gram" else "Stars"
 
-    chat_id = cb.message.chat.id
-    message_id = cb.message.message_id
-    bcid = cb.message.business_connection_id
+chat_id = cb.message.chat.id
+message_id = cb.message.message_id
+bcid = cb.message.business_connection_id
 
-    gift_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
+gift_emoji = '<tg-emoji emoji-id="5985472565508838112">🎁</tg-emoji>'
 
     new_text = (
     f"{gift_emoji} <b>"

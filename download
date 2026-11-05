@@ -1,0 +1,5 @@
+.env
+connections.json
+__pycache__/
+*.pyc
+.venv/
